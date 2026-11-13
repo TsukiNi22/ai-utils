@@ -1,6 +1,6 @@
 name: Docs - claude-cluster (CD)
 
-# The documentation of claude-cluster (ai/claude-cluster/docs/site) on GitHub Pages: its own folder of the gh-pages branch,
+# The documentation of claude-cluster (tools/claude-cluster/docs/site) on GitHub Pages: its own folder of the gh-pages branch,
 # claude-cluster/ (the graph explorer and the index at the root of the branch are never touched).
 # Run by hand (workflow_dispatch) or when the sources of the docs change on main.
 
@@ -9,13 +9,13 @@ on:
   push:
     branches: [main]
     paths:
-      - "ai/claude-cluster/docs/site/**"
-      - "ai/claude-cluster/templates/config.toml"
-      - "ai/claude-cluster/src/cluster/Mcp.cpp"
-      - "ai/claude-cluster/src/cluster/Settings.cpp"
-      - "ai/claude-cluster/src/cluster/Orchestrator-Control.cpp"
-      - "ai/claude-cluster/src/cluster/Orchestrator-Settings.cpp"
-      - "docs/html-style/**"
+      - "tools/claude-cluster/docs/site/**"
+      - "tools/claude-cluster/templates/config.toml"
+      - "tools/claude-cluster/src/cluster/Mcp.cpp"
+      - "tools/claude-cluster/src/cluster/Settings.cpp"
+      - "tools/claude-cluster/src/cluster/Orchestrator-Control.cpp"
+      - "tools/claude-cluster/src/cluster/Orchestrator-Settings.cpp"
+      - "skills/docs/html-style/**"
 
 permissions:
   contents: write
@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   docs:
-    runs-on: ${{ vars.RUNNER }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }} # a self-hosted runner when the repository sets the variable RUNNER
     defaults:
       run:
         shell: bash
@@ -46,14 +46,14 @@ jobs:
       - name: Checkout main
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0 # the changelog is the git history of ai/claude-cluster
+          fetch-depth: 0 # the changelog is the git history of tools/claude-cluster
 
       - name: Build the site
         run: |
           set -euo pipefail
-          python3 ai/claude-cluster/docs/site/build.py --out site
-          python3 ai/claude-cluster/docs/site/tools/check.py site
-          node ai/claude-cluster/docs/site/tools/test_search.js site
+          python3 tools/claude-cluster/docs/site/build.py --out site
+          python3 tools/claude-cluster/docs/site/tools/check.py site
+          node tools/claude-cluster/docs/site/tools/test_search.js site
           echo "✓ site built and checked"
         timeout-minutes: 10
 

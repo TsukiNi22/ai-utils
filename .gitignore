@@ -3,3 +3,5 @@ __pycache__/
 .installed-from
 dist/
 build/
+.claude-cluster
+.claude-cluster-clean

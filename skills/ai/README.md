@@ -1,0 +1,32 @@
+# AI workflow skills
+
+How a session works with me: questions through the QCM popup, the doubts asked first, ideas, a run without
+interruption, the context of a project or of earlier sessions, a handover file, token-minimal outputs, writing in
+my voice, presentations.
+
+## Skills
+<!-- generated:skills -->
+| Skill | What it does | Installs with it |
+|---|---|---|
+| [`ask-at-end`](ask-at-end/SKILL.md) | Runs the whole task without one interruption: no question, confirmation or plan to approve; every doubt decided with the sensible default (noted), blockers worked around or set aside, the user's hard rules kept (an action needing consent is prepared, not done); at the very end one report and every open point asked at once (`interactive-questions`, `ideation`) | [`interactive-questions`](../ai/interactive-questions/SKILL.md), [`ideation`](../ai/ideation/SKILL.md), [`rtk`](../ai/rtk/SKILL.md) |
+| [`clarify`](clarify/SKILL.md) | Summoned before a request: lists everything unclear (scope, ambiguous words, missing details, several approaches, contradictions, risky actions), asks it through `interactive-questions` in as many rounds as needed (structuring questions first), then acts on the answers; no popup when nothing is ambiguous. | [`interactive-questions`](../ai/interactive-questions/SKILL.md) |
+| [`export`](export/SKILL.md) | A handover file for another session / machine / model (`PASSATION.md` by default): goal, rules of the user, done / running / todo (each with its exact next step) / blocked, decisions, files and repo state, how to build / test / run, tools and scripts used, the skills to load and the MCP servers / CLI tools to set up, traps met - terse for an AI (`rtk`), never a secret; then the ready-to-paste prompt for the new session, saying whether the file must be sent with it (not when the new session works in its folder) | [`rtk`](../ai/rtk/SKILL.md) |
+| [`full-permission`](full-permission/SKILL.md) | Says plainly that the prompt gives every permission on the repository or the scope named (commit, push, description, `Co-Authored-By`, version, changelog, docs) whatever the context rules say about asking first; commits and pushes as the tasks go, only what the prompt restricts stays restricted; manual command (`/full-permission`) | [`git-conventions`](../git/git-conventions/SKILL.md) |
+| [`ideation`](ideation/SKILL.md) | Ideas, recommendations, an honest opinion or variants of ideas, asked through `interactive-questions`: grounded in the real project, 8-16 ideas by theme (effort / gain each) or the best few ranked, per idea keep / change / drop, variants compared with previews; rounds of which to keep and when (now, backlog, POC first), then a recap and the kept ones stored as tasks. | [`interactive-questions`](../ai/interactive-questions/SKILL.md) |
+| [`interactive-questions`](interactive-questions/SKILL.md) | Asks through the built-in QCM / Q&A popup (AskUserQuestion) instead of a list in the text: questions, proposals, ideas, choices, rounds of ideas; French labels, 1-4 questions × 2-4 options, the recommended one first, multi choice, previews to compare, the answers (and their notes) followed exactly. Works in claude-cluster too (its popups, the voice, *Global answers*). | — |
+| [`onboard`](onboard/SKILL.md) | The whole context of a project before working on it: the folder read entirely (tree, docs, code, build / CI, license and credits, links), its git history (branches, tags, worktrees, stashes, pending and unpushed work), every earlier session on this computer that touched it (Claude Code, claude-cluster, Codex, Qwen, opencode, PASSATION.md) - merged, checked against the code, reported tersely; read-only. | [`rtk`](../ai/rtk/SKILL.md) |
+| [`presentation`](presentation/SKILL.md) | A presentation from a plan or an idea: the time (given, or estimated and confirmed) sets the number of slides, the format (PDF, one-file animated HTML, PPTX, several or all) and the style (proposals fitting the subject, `White blueprint` by default, or copied from a PPTX / PDF / HTML given) are asked through `interactive-questions`; one `deck.json` builds every format plus the speaker notes; checked with contact sheets and a selftest of the web page; `--canva` builds a PDF / PPTX that survives an import into Canva (one Canva font per role, no gradient background) and `check_deck.py --canva` reads the files back (text kept, fonts embedded) | [`interactive-questions`](../ai/interactive-questions/SKILL.md) |
+| [`rtk`](rtk/SKILL.md) | Token-minimal text for an AI: compacts a text / output / log (legend once, one record per line, shared values written once, one summary line; `scripts/compact.py` first pass) and designs / implements an `--rtk` mode on a program or script, like `xstyle --rtk`. | — |
+| [`setup-context`](setup-context/SKILL.md) | Equips the session before a task: reads the repository (tree, docs, rules files, build, code, history and pending work), the earlier **and archived** sessions on this computer (Claude Code transcripts / memory / background jobs, claude-cluster sessions and their trash, Codex / Qwen / opencode, handover files), loads the skills that fit the project and checks the MCP servers / tools it would use; read-only, the questions only at the end (`interactive-questions`) | [`interactive-questions`](../ai/interactive-questions/SKILL.md), [`rtk`](../ai/rtk/SKILL.md) |
+| [`write-like-me`](write-like-me/SKILL.md) | Writes in my own voice, measured on what I typed myself (my prompts, my `.info` notes): French with the English words of the trade, lowercase, few accents, imperative requests chained with `et`, `a/b/c` alternatives, `ou autre` / `ect...`, asides, `->`, `???` / `!!!`; notes as short todo lines; typos off by default; `scripts/sample.py` reads a fresh sample of my writing (local only) | — |
+<!-- /generated:skills -->
+
+The *Installs with it* column comes from each `requires.txt`: `./setup.sh install <skill>` installs them too.
+
+## Examples
+- */clarify before you start: (request)*
+- */ideation ideas for the next version*
+- *export the session for another machine*
+- *make a 10 minute presentation on the project*
+
+[All the categories](../README.md) · [Installation](../../INSTALL.md)

@@ -1,0 +1,44 @@
+name: Check - repository (CI)
+
+# The repository holds together (scripts/check.py): every skill (frontmatter, summary, requires.txt, the files it
+# names), the routers, the marketplace, the generated tables of the READMEs, the links of the READMEs, setup.sh.
+# Run on every push / pull request and by hand.
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }} # a self-hosted runner when the repository sets the variable RUNNER
+    defaults:
+      run:
+        shell: bash
+
+    container:
+      image: python:3.13-slim # python3 and bash are enough
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Check the repository
+        run: |
+          set -euo pipefail
+          python3 scripts/check.py
+        timeout-minutes: 5
+
+      - name: Check setup.sh install / doctor in a scratch project
+        run: |
+          set -euo pipefail
+          project="$(mktemp -d)"
+          ./setup.sh install python-class git --project "$project" --copy
+          ./setup.sh doctor --project "$project"
+          python3 "$project/.claude/skills/python-class/scripts/new_file.py" --help > /dev/null
+          echo "✓ install, doctor and a copied script work"
+        timeout-minutes: 5

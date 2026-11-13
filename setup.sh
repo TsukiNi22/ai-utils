@@ -10,29 +10,35 @@
 #   remove  [name...]    remove the given skills / tools / context (default: all of this repo)
 #                        a name can also be a whole kind or category, nothing to list one by one:
 #                          skills       every skill          tools        every tool
-#                          context      the context          <category>/  every skill and tool of a category
+#                          context      the context          <category>/  every skill of skills/<category>/
 #                                                                         (ex: cpp/, docs/, style/; also @cpp)
-#   update               pull the last version of the repository (the symlinks follow, the tools are rebuilt)
+#   update               pull the last version of the repository (the symlinks follow and are repaired, the tools
+#                        are rebuilt)
 #   list                 list the skills, the tools and the context available in this repo
 #   status               show which skills, tools and context are installed
+#   doctor [--fix]       find what is broken in the installed skills: links to a moved or removed skill, copies of
+#                        a skill gone from the repo, requirements not installed; --fix repairs it
 #   context <command>    only the context, with its own options: install | remove | update | status
 #   hook [command]       xstyle pre-commit hook of the git repository of the current directory (not global):
 #                        install (default) | remove | status [--repo <dir>] [--fail-on major] [--warn-on minor]
 #                        [--scope staged|files|all] [--fix none|safe] [--missing warn|fail|ignore] [--shared] ...
-#                        (git/pre-commit/scripts/install_hook.sh --help for every option)
+#                        (skills/git/pre-commit/scripts/install_hook.sh --help for every option)
+#
+# Skills: skills/<category>/<skill>/SKILL.md (routers in skills/routers/), installed flat by name.
 #
 # Context (context/, name `context`): the global instructions of Claude Code (CLAUDE.md, RTK.md, session hooks,
 # rtk, sudo-askpass) installed in ~/.claude and ~/.local/bin (symlinks, the replaced files are saved and restored by
 # remove). Part of the default `install` / `remove` / `status` (not with --project: it is global), `--no-context`
 # skips it, `--no-rtk` / `--no-hooks` are given to it, see context/README.md.
 #
-# Tools (<category>/<tool>/tool.txt, ex: ai/claude-cluster): C++ programs built with CMake (clang++, libutils)
+# Tools (tools/<tool>/tool.txt, ex: tools/claude-cluster): C++ programs built with CMake (clang++, libutils)
 # and installed in <prefix>/bin; a tool that can't be built is skipped with the reason, never fatal.
 # Their completion is installed for bash (bash-completion), zsh (block in ~/.zshrc) and fish.
 #
 # Options:
 #   --project <dir>      target <dir>/.claude/skills instead of ~/.claude/skills
 #   --copy               copy the files instead of a symlink (default: symlink, edits are live)
+#   --fix                doctor: repair what it finds
 #   --force              replace an already existing skill that doesn't come from this repo
 #   --prefix <dir>       install prefix of the tools (default: ~/.local, binaries in <dir>/bin)
 #   --no-context         leave the context aside (default install / remove / status handle it)
@@ -67,7 +73,7 @@ SKILLS_HOME="${SKILLS_HOME:-$HOME/.local/share/tsukini-skills}"
 # Piped mode (curl/wget): work from a managed clone
 # =========================
 SELF="${BASH_SOURCE[0]:-}"
-if [[ -z "$SELF" ]] || [[ ! -f "$SELF" ]] || ! ls "$(dirname "$SELF")"/*/*/SKILL.md > /dev/null 2>&1; then
+if [[ -z "$SELF" ]] || [[ ! -f "$SELF" ]] || ! ls "$(dirname "$SELF")"/skills/*/*/SKILL.md > /dev/null 2>&1; then
     command -v git > /dev/null 2>&1 || { echo "Error: git is required" >&2; exit 1; }
     if [[ -d "$SKILLS_HOME/.git" ]]; then
         git -C "$SKILLS_HOME" pull -q --ff-only || echo "warning: update of $SKILLS_HOME failed, using the local version" >&2
@@ -79,6 +85,8 @@ if [[ -z "$SELF" ]] || [[ ! -f "$SELF" ]] || ! ls "$(dirname "$SELF")"/*/*/SKILL
 fi
 
 REPO="$(cd "$(dirname "$SELF")" && pwd)"
+SKILLS_ROOT="$REPO/skills"    # skills/<category>/<skill>/SKILL.md
+TOOLS_ROOT="$REPO/tools"      # tools/<tool>/tool.txt
 
 # =========================
 # Global context (context/): delegate to its own setup.sh
@@ -96,7 +104,7 @@ if [[ "${1:-}" = "hook" ]]; then
         install|remove|status|-h|--help) ;;
         *) set -- install "$@" ;;
     esac
-    exec bash "$REPO/git/pre-commit/scripts/install_hook.sh" "$@"
+    exec bash "$SKILLS_ROOT/git/pre-commit/scripts/install_hook.sh" "$@"
 fi
 TARGET="$HOME/.claude/skills"
 PREFIX="${SKILLS_PREFIX:-$HOME/.local}"
@@ -107,6 +115,8 @@ TOOLS_CHANGED=false
 MODE="link"
 FORCE=false
 PURGE=false
+FIX=false
+PROJECT_DIR=""
 COMMAND=""
 SKILLS=()
 TOOLS=()
@@ -132,7 +142,7 @@ real_path() {
         esac
     done
     if [[ -d "$path" ]]; then (cd -P "$path" && pwd)
-    else echo "$(cd -P "$(dirname "$path")" && pwd)/$(basename "$path")"
+    else echo "$(cd -P "$(dirname "$path")" 2> /dev/null && pwd || dirname "$path")/$(basename "$path")"
     fi
 }
 
@@ -164,16 +174,16 @@ error() {
     exit 1
 }
 
-# Skills are stored as <category>/<skill>/SKILL.md (routers/, cpp/, docs/...), installed flat by name
+# Skills are stored as skills/<category>/<skill>/SKILL.md (routers/, cpp/, docs/...), installed flat by name
 available() {
-    for file in "$REPO"/*/*/SKILL.md; do
+    for file in "$SKILLS_ROOT"/*/*/SKILL.md; do
         [[ -f "$file" ]] && basename "$(dirname "$file")"
     done | sort
 }
 
 # Path of a skill in the repository from its name (empty when unknown)
 skill_dir() {
-    for dir in "$REPO"/*/"$1"; do
+    for dir in "$SKILLS_ROOT"/*/"$1"; do
         [[ -f "$dir/SKILL.md" ]] && { echo "$dir"; return; }
     done
 }
@@ -182,17 +192,15 @@ description() {
     sed -n 's/^description: *//p' "$(skill_dir "$1")/SKILL.md" | head -1 | cut -c1-90
 }
 
-# Tools are stored as <category>/<tool>/tool.txt (one line: description), built into <prefix>/bin/<tool>
+# Tools are stored as tools/<tool>/tool.txt (one line: description), built into <prefix>/bin/<tool>
 tools() {
-    for file in "$REPO"/*/*/tool.txt; do
+    for file in "$TOOLS_ROOT"/*/tool.txt; do
         [[ -f "$file" ]] && basename "$(dirname "$file")"
     done | sort
 }
 
 tool_dir() {
-    for dir in "$REPO"/*/"$1"; do
-        [[ -f "$dir/tool.txt" ]] && { echo "$dir"; return; }
-    done
+    if [[ -f "$TOOLS_ROOT/$1/tool.txt" ]]; then echo "$TOOLS_ROOT/$1"; fi
 }
 
 # true if <prefix>/bin/<tool> is this tool (answers "<tool> <version>" to --version)
@@ -601,11 +609,31 @@ reload_hint() {
     esac
 }
 
+# true if the symlink <path> points into this repository, even when nothing is there any more (a skill moved or removed)
+links_here() {
+    local link
+    link="$(readlink "$1")" || return 1
+    [[ "$link" == "$REPO/"* ]] || [[ "$link" == "$(real_path "$REPO")/"* ]]
+}
+
+# Put the skill <name> in the target: a symlink, or a copy marked with the repository it comes from (--copy)
+put_skill() {
+    local dest="$TARGET/$1" src
+    src="$(skill_dir "$1")"
+    if [[ "${2:-$MODE}" = "link" ]]; then
+        ln -s "$src" "$dest"
+    else
+        cp -r "$src" "$dest"
+        echo "$REPO" > "$dest/.installed-from"
+    fi
+    find "$src" -path '*/scripts/*' \( -name '*.sh' -o -name '*.py' \) -exec chmod +x {} +
+}
+
 # true if the installed skill comes from this repo (symlink to it or copy with the marker)
 is_ours() {
     local dest="$TARGET/$1"
     if [[ -L "$dest" ]]; then
-        [[ "$(real_path "$dest")" = "$(real_path "$(skill_dir "$1")")" ]]
+        [[ "$(real_path "$dest")" = "$(real_path "$(skill_dir "$1")")" ]] || { [[ ! -e "$dest" ]] && links_here "$dest"; }
     else
         [[ -f "$dest/.installed-from" ]] && [[ "$(cat "$dest/.installed-from")" = "$REPO" ]]
     fi
@@ -616,14 +644,15 @@ is_ours() {
 # =========================
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        install|remove|update|list|status)
+        install|remove|update|list|status|doctor)
             [[ -n "$COMMAND" ]] && error "only one command allowed"
             COMMAND="$1"
             ;;
         --project)
             [[ $# -lt 2 ]] && error "--project requires a directory"
             [[ -d "$2" ]] || error "directory not found: $2"
-            TARGET="$(cd "$2" && pwd)/.claude/skills"
+            PROJECT_DIR="$(cd "$2" && pwd)"
+            TARGET="$PROJECT_DIR/.claude/skills"
             PROJECT=true
             shift
             ;;
@@ -633,6 +662,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --copy) MODE="copy" ;;
+        --fix) FIX=true ;;
         --force) FORCE=true ;;
         --purge) PURGE=true ;;
         --no-context) CONTEXT=false ;;
@@ -668,16 +698,16 @@ else
         elif [[ "$name" = "tools" ]]; then
             for tool in $(tools); do add_tool "$tool"; done
         elif [[ "$name" == */ ]] || [[ "$name" == @* ]]; then
-            # a whole category: every skill and tool of <category>/ (cpp/, docs/, style/...)
+            # a whole category: every skill of skills/<category>/ (cpp/, docs/, style/...), tools/: every tool
             category="${name%/}"
             category="${category#@}"
             found=false
-            for file in "$REPO/$category"/*/SKILL.md; do
+            for file in "$SKILLS_ROOT/$category"/*/SKILL.md; do
                 [[ -f "$file" ]] && { add_skill "$(basename "$(dirname "$file")")"; found=true; }
             done
-            for file in "$REPO/$category"/*/tool.txt; do
-                [[ -f "$file" ]] && { add_tool "$(basename "$(dirname "$file")")"; found=true; }
-            done
+            if [[ "$category" = "tools" ]]; then
+                for tool in $(tools); do add_tool "$tool"; found=true; done
+            fi
             $found || error "unknown category '$category' (see: $0 list)"
         elif [[ -n "$(skill_dir "$name")" ]]; then add_skill "$name"
         elif [[ -n "$(tool_dir "$name")" ]]; then add_tool "$name"
@@ -707,6 +737,10 @@ fi
 case "$COMMAND" in
     update)
         git -C "$REPO" pull --ff-only
+        # the links of a skill that moved in the repository are repaired by the new setup.sh
+        doctor_opts=(doctor --fix)
+        $PROJECT && doctor_opts+=(--project "$PROJECT_DIR")
+        bash "$REPO/setup.sh" "${doctor_opts[@]}" | grep -v '^Target:' || true
         for tool in $(tools); do
             tool_installed "$tool" && install_tool "$tool"
         done
@@ -714,7 +748,7 @@ case "$COMMAND" in
 
     list)
         echo "Categories (install / remove <category>/ for all of it; skills / tools for every one of a kind):"
-        for dir in "$REPO"/*/; do
+        for dir in "$SKILLS_ROOT"/*/ "$TOOLS_ROOT/"; do
             category="$(basename "$dir")"
             names=""
             for file in "$dir"*/SKILL.md "$dir"*/tool.txt; do
@@ -769,18 +803,72 @@ case "$COMMAND" in
                     continue
                 fi
             fi
-            if [[ "$MODE" = "link" ]]; then
-                ln -s "$(skill_dir "$skill")" "$dest"
-            else
-                cp -r "$(skill_dir "$skill")" "$dest"
-                echo "$REPO" > "$dest/.installed-from"
-            fi
-            find "$(skill_dir "$skill")" -path '*/scripts/*' \( -name '*.sh' -o -name '*.py' \) -exec chmod +x {} +
+            put_skill "$skill"
             echo "  installed $skill -> $dest ($MODE)"
         done
         for tool in ${TOOLS[@]+"${TOOLS[@]}"}; do
             install_tool "$tool"
         done
+        ;;
+
+    doctor)
+        echo "Target: $TARGET"
+        problems=0
+        fixed=0
+        # what is installed from this repository: links to a moved / removed skill, copies of a removed or changed one
+        for dest in "$TARGET"/*; do
+            [[ -e "$dest" ]] || [[ -L "$dest" ]] || continue
+            name="$(basename "$dest")"
+            src="$(skill_dir "$name" || true)"
+            if [[ -L "$dest" ]]; then
+                links_here "$dest" || continue
+                [[ -n "$src" ]] && [[ "$(real_path "$dest")" = "$(real_path "$src")" ]] && continue
+                problems=$((problems + 1))
+                if [[ -n "$src" ]]; then
+                    echo "  $name: link to an old place ($(readlink "$dest")), the skill is now in ${src#"$REPO"/}"
+                    $FIX && { rm -f "$dest"; ln -s "$src" "$dest"; fixed=$((fixed + 1)); echo "    relinked"; }
+                else
+                    echo "  $name: link to a skill that is no longer in the repository ($(readlink "$dest"))"
+                    $FIX && { rm -f "$dest"; fixed=$((fixed + 1)); echo "    removed"; }
+                fi
+            elif [[ -f "$dest/.installed-from" ]] && [[ "$(cat "$dest/.installed-from")" = "$REPO" ]]; then
+                if [[ -z "$src" ]]; then
+                    problems=$((problems + 1))
+                    echo "  $name: copy of a skill that is no longer in the repository"
+                    $FIX && { rm -rf "$dest"; fixed=$((fixed + 1)); echo "    removed"; }
+                elif ! diff -rq -x .installed-from -x __pycache__ "$src" "$dest" > /dev/null 2>&1; then
+                    problems=$((problems + 1))
+                    echo "  $name: copy older than the repository"
+                    $FIX && { rm -rf "$dest"; put_skill "$name" copy; fixed=$((fixed + 1)); echo "    copied again"; }
+                fi
+            fi
+        done
+        # the skills required by the installed ones (requires.txt), installed the same way (link / copy)
+        missing=" "
+        for skill in $(available); do
+            [[ -e "$TARGET/$skill" ]] && is_ours "$skill" || continue
+            req="$(skill_dir "$skill")/requires.txt"
+            [[ -f "$req" ]] || continue
+            for dep in $(cat "$req"); do
+                # present, a link repaired above (or to repair), or already counted
+                [[ -e "$TARGET/$dep" ]] || [[ -L "$TARGET/$dep" ]] || [[ "$missing" == *" $dep "* ]] && continue
+                missing="$missing$dep "
+                problems=$((problems + 1))
+                echo "  $skill: requires $dep, not installed"
+                if $FIX && [[ -n "$(skill_dir "$dep")" ]]; then
+                    how="copy"
+                    [[ -L "$TARGET/$skill" ]] && how="link"
+                    put_skill "$dep" "$how"
+                    fixed=$((fixed + 1))
+                    echo "    installed $dep ($how)"
+                fi
+            done
+        done
+        if [[ $problems -eq 0 ]]; then echo "  nothing to repair"
+        elif $FIX; then echo "  $problems problem(s), $fixed repaired"
+        else echo "  $problems problem(s): $0 doctor --fix${PROJECT_DIR:+ --project $PROJECT_DIR} repairs them"
+        fi
+        [[ $((problems - fixed)) -eq 0 ]] || exit 1
         ;;
 
     remove)
@@ -821,7 +909,7 @@ fi
 # =========================
 # Context (context/setup.sh): same command, only when it is selected
 # =========================
-if $CONTEXT && [[ "$COMMAND" != "update" ]]; then
+if $CONTEXT && [[ "$COMMAND" != "update" ]] && [[ "$COMMAND" != "doctor" ]]; then
     $PROJECT && $CONTEXT_NAMED && echo "  note: the context is global, --project is ignored for it"
     case "$COMMAND" in
         list)

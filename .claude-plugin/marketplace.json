@@ -12,7 +12,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./cpp/"
+        "./skills/cpp/"
       ]
     },
     {
@@ -21,7 +21,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./libutils/"
+        "./skills/libutils/"
       ]
     },
     {
@@ -30,7 +30,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./docs/"
+        "./skills/docs/"
       ]
     },
     {
@@ -39,7 +39,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./ai/"
+        "./skills/ai/"
       ]
     },
     {
@@ -48,7 +48,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./git/"
+        "./skills/git/"
       ]
     },
     {
@@ -57,7 +57,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./style/"
+        "./skills/style/"
       ]
     },
     {
@@ -66,7 +66,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./python/"
+        "./skills/python/"
       ]
     },
     {
@@ -75,7 +75,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./tests/"
+        "./skills/tests/"
       ]
     },
     {
@@ -84,7 +84,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./audit/"
+        "./skills/audit/"
       ]
     },
     {
@@ -93,7 +93,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./legal/"
+        "./skills/legal/"
       ]
     },
     {
@@ -102,7 +102,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./system/"
+        "./skills/system/"
       ]
     },
     {
@@ -111,13 +111,13 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./ux/"
+        "./skills/ux/"
       ]
     },
     {
       "name": "audit",
       "description": "Router /audit: Router running the audits of the current project",
-      "source": "./routers/audit",
+      "source": "./skills/routers/audit",
       "strict": false,
       "skills": [
         "./"
@@ -126,7 +126,7 @@
     {
       "name": "cpp",
       "description": "Router /cpp: Router for every C++ task of the user",
-      "source": "./routers/cpp",
+      "source": "./skills/routers/cpp",
       "strict": false,
       "skills": [
         "./"
@@ -135,7 +135,7 @@
     {
       "name": "python",
       "description": "Router /python: every Python task (project, class, style, comments, tests, CI/CD, benchmark)",
-      "source": "./routers/python",
+      "source": "./skills/routers/python",
       "strict": false,
       "skills": [
         "./"
@@ -144,7 +144,7 @@
     {
       "name": "dev",
       "description": "Router /dev: Global development router",
-      "source": "./routers/dev",
+      "source": "./skills/routers/dev",
       "strict": false,
       "skills": [
         "./"
@@ -153,7 +153,7 @@
     {
       "name": "doc",
       "description": "Router /doc: Router for documentation tasks of the user",
-      "source": "./routers/doc",
+      "source": "./skills/routers/doc",
       "strict": false,
       "skills": [
         "./"
@@ -162,7 +162,7 @@
     {
       "name": "git",
       "description": "Router /git: Router for git / GitHub tasks of the user",
-      "source": "./routers/git",
+      "source": "./skills/routers/git",
       "strict": false,
       "skills": [
         "./"
@@ -171,7 +171,7 @@
     {
       "name": "legal",
       "description": "Router /legal: Router for legal matters of the user's projects",
-      "source": "./routers/legal",
+      "source": "./skills/routers/legal",
       "strict": false,
       "skills": [
         "./"
@@ -180,7 +180,7 @@
     {
       "name": "setup-project",
       "description": "Router /setup-project: set up a whole project (architecture, tests, license, git + pre-commit hook, CI/CD, README, quick audit)",
-      "source": "./routers/setup-project",
+      "source": "./skills/routers/setup-project",
       "strict": false,
       "skills": [
         "./"
@@ -189,7 +189,7 @@
     {
       "name": "style",
       "description": "Router /style: Router for the user's coding style in every language",
-      "source": "./routers/style",
+      "source": "./skills/routers/style",
       "strict": false,
       "skills": [
         "./"

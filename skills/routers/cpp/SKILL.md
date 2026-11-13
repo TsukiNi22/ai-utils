@@ -1,0 +1,53 @@
+---
+name: cpp
+description: Router for every C++ task of the user - looks at the request and the project, then loads the right C++ skills (cpp-project, cpp-class, cpp-style, cpp-comments, cmake-style, libutils, libutils-exception, cpp-tests, coverage, benchmark, ci-cd). Invoke manually with /cpp.
+disable-model-invocation: true
+metadata:
+  summary: 'Loads `cpp-project`, `cpp-class`, `cpp-style`, `cpp-comments`, `cmake-style`, `cpp-tests`, `audit-bugs`, `audit-quality`, `libutils`, `libutils-exception`, `libutils-install`, `libutils-setup`, `coverage`, `benchmark`, `ci-cd`.'
+---
+
+# C++ router
+
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
+**Request given with `/cpp`:** $ARGUMENTS
+
+Do not answer from this file: decide which skills apply, **load them with the Skill tool** (never the other routers: they are manual-only), then do the task
+following them. The request is the text given with `/cpp` (or, if empty, the latest request of the user;
+if there is none, inspect the project and propose what can be done).
+
+## 1. Look at the context (quickly, in parallel)
+- `CMakeLists.txt`, `include/`, `src/`, `tests/`, `cmake/config/exceptions/` present? Empty folder = new project.
+- libutils used? `bash <cpp-class>/scripts/detect_libutils.sh <root>` (`internal` / `libutils` / `std`),
+  `grep -rl "utils::" src include`.
+- Files the request is about (open them before deciding).
+
+## 2. Pick the skills (several can apply, load all of them before writing)
+| Situation | Skills |
+|---|---|
+| new project / repository / "setup" | `cpp-project` (it loads the others it needs) |
+| new class, interface, abstract, struct, enum, module, main, architecture | `cpp-class` (+ `cpp-style`, `cpp-comments`) |
+| write / edit / refactor / fix C++ code | `cpp-style` + `cpp-comments` (+ `libutils` if the project uses it) |
+| comments only | `cpp-comments` (`comments` for CMake/shell/other files of the project) |
+| review C++ code against the user's style | `cpp-style` + `cpp-comments` (+ `cmake-style` if CMake changed) |
+| `CMakeLists.txt`, tests CMake, packaging, CPack, `find_package` | `cmake-style` |
+| "how to do X", which class/function, links/includes of libutils, what's new in libutils | `libutils` |
+| throw/catch/print errors, new error codes, exception JSON, generated exception header | `libutils-exception` (+ `libutils`) |
+| install / update / remove libutils, build fails because libutils is missing or too old | `libutils-install` |
+| add libutils to the current project (CMake, custom exceptions setup) | `libutils-setup` |
+| unit tests: setup, write tests for a module / the whole project | `cpp-tests` |
+| coverage: measure, what is not tested, fill it, coverage report | `coverage` (+ `cpp-tests`) |
+| slow code, profiling, benchmark, optimization | `benchmark` |
+| CI / CD workflows (build, tests, xstyle, packages, release) | `ci-cd` |
+| bugs, UB, crashes, memory errors, sanitizers, correctness review | `audit-bugs` |
+| security audit, flaws, exploits, memory errors fixed in passes until clean | `audit-security` |
+| cleanliness / conventions audit, report of the project quality | `audit-quality` (delivered through `report`, format asked) |
+| new `.cpp` added | also `cmake-style` (registration in `SRC`, `cpp-class/scripts/cmake_add.py`) |
+| commit / docs asked at the end | `git-conventions` / `readme-style`, `html-doc` |
+
+Rules: architecture skills never write function logic (`cpp-class`); when unsure between two rows, load both;
+when the project doesn't use libutils, don't load `libutils*` and use standard C++ (`cpp-style` `std` mode).
+
+## 3. Say it
+Start the answer with one line: which skills were loaded and why (ex: "Skills : cpp-class, cpp-style,
+cpp-comments (nouvelle classe dans un projet libutils)").

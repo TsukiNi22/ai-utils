@@ -1,0 +1,61 @@
+---
+name: audit
+description: Router running the audits of the current project - asks which ones to trigger (checklist - bugs/UB, quality/conventions, dependencies licenses + vulnerabilities, tests coverage, performance - coverage and benchmark checked and run automatically) and the report format, then runs the selected audit skills one after the other and writes a summary report linking them. Invoke manually with /audit.
+disable-model-invocation: true
+metadata:
+  summary: 'Asks which audits to run (checklist: `audit-bugs`, `audit-security`, `audit-quality`, `audit-deps`, `legal-check`, `coverage`, `benchmark`; coverage and benchmark checked and run automatically) and the report format, runs them and writes a summary report in `audit/`.'
+---
+
+# Audit router
+
+**Request given with `/audit`:** $ARGUMENTS
+
+Load the skills with the Skill tool (never the other routers: they are manual-only). Never start fork agents; an
+audit that offers parallel agents asks the user first (its own rule).
+
+## 1. Context
+- Project root: `git rev-parse --show-toplevel` (or the current folder outside a repository), languages / build
+  system, `git log --oneline -1` (the commit audited).
+- Output folder: `audit/` at that root (created if missing), never `docs/` unless asked.
+
+## 2. Ask (one AskUserQuestion call, French questions)
+1. **Quels audits lancer ?** (`multiSelect: true`, all checked = recommended):
+   - `Bugs / UB` -> `audit-bugs` (sanitizers, tests, review; slow on big projects)
+   - `Sécurité / failles` -> `audit-security` (memory errors, injection, auth, secrets, network...: fixed in passes until a clean
+     one; its report is always a PDF)
+   - `Propreté / conventions` -> `audit-quality`
+   - `Dépendances` -> `audit-deps` (licenses to credit / restrictive, known vulnerabilities, transitive)
+   - `Légal / conformité` -> `legal-check` (GDPR, cookies, legal notice, terms, accessibility, licenses, mentions; its scope global / web asked by it)
+   - `Couverture des tests` -> `coverage` (C++ with tests: measured with llvm-cov) or `tests` (other languages)
+   - `Performance` -> `benchmark` (profiling of the main scenario of the project)
+2. **Format du rendu**: `Markdown + PDF (Recommandé)` · `PDF seulement` · `Markdown seulement` (passed to every audit,
+   they don't ask again).
+If the request already names the audits / format, skip what is known. Audit specific questions (ex: `audit-bugs`
+scope, mode, iterations, fixes) are asked by that audit when it starts, in one call.
+
+`coverage` and `benchmark` are **checked by default and run automatically** like the others, in audit mode:
+- `coverage`: measure + `uncovered.md` + its report only (no test written during an audit: the "fill" part of the skill
+  is proposed in the summary, its end-of-run question is answered by the audit's format choice); skipped with the reason
+  when the project has no tests or no clang / llvm-cov.
+- `benchmark`: the obvious scenario of the project without asking (the main binary with a typical input found in the
+  README / tests / examples, else the test suite in an optimized build), quick depth (perf + time), report only, no
+  optimization applied; skipped with the reason when nothing can be run (library without benchmark target or tests).
+
+`xstyle` (when installed: `command -v xstyle`) is always run with **`--rtk`** by the audits (compact output made for
+the assistant; `-o <file>.json` for counters kept in a report): `audit-quality` uses all its rules, `audit-bugs` the ones
+that hide bugs. Not installed: say once that `curl -fsSL https://tsukini22.github.io/my-universe/install.sh | bash -s` then `sudo dnf install xstyle` ([TsukiNi22/xstyle](https://github.com/TsukiNi22/xstyle))
+(no curl: `wget -qO-` instead of `curl -fsSL`) would add those checks.
+
+## 3. Run (in this order, sequentially)
+1. `audit-deps` first when selected: its JSON (`/tmp/deps.json`, `/tmp/vulns.json`) is reused by `audit-quality`
+   and `audit-bugs` instead of running the scripts again.
+2. `legal-check` (reuses the `audit-deps` JSON for the licenses), 3. `audit-quality`, 4. tests coverage, 5. `benchmark`, 6. `audit-bugs` (the longest, it may fix things only after
+confirmation), 7. `audit-security` last (it fixes as it goes and loops until a clean pass: the other reports describe the code
+before its fixes).
+Each audit writes its own report `audit/<YYYY-MM-DD>-<audit>.{md,pdf}` (English unless asked, `report` style).
+An audit that fails or can't run (no build system, missing tool) is reported as such, the others continue.
+
+## 4. Summary report
+`audit/<YYYY-MM-DD>-summary.{md,pdf}` through `report`: **Summary** table `| Audit | Verdict | High | Medium |
+Low | Report |` (link to each report), the **top 10 actions** across all the audits (deduplicated, highest gain
+first), what was not run and why, the commit audited. In the chat: the verdict per audit and the paths only.

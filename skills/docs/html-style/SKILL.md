@@ -1,0 +1,161 @@
+---
+name: html-style
+description: The user's visual style for any HTML page (taken from html-doc - R-Type doc colors + context-forge layout) - color tokens for the light and dark themes, system font stacks and type scale, spacing / radius / layout / breakpoints, components (top bar, cards, callouts, tables, code blocks with copy, content tabs, sidebar, pager, SVG diagram classes, sun/moon theme switch, EN/FR switch), rules (responsive on phone, tablet, TV and touch screens, self-contained, no CDN / web font / gradient / emoji, WCAG contrast in both themes) - with scripts to build a self-contained page (new_page.py) and check a page or a palette (check_style.py). Use whenever creating or restyling an HTML page, a small web tool, a dashboard or a page component for the user, or when defining / changing a palette, color, font or theme, unless the user asks for another style.
+metadata:
+  summary: 'My visual style for any HTML page (from `html-doc`): light / dark color tokens, system fonts and type scale, layout, components, SVG diagram classes, sun/moon and EN/FR switches, rules (self-contained, WCAG contrast, **responsive on phones / tablets / TV / touch**: viewport, safe areas, 44px targets, no hover-only content, print); `scripts/new_page.py` builds a self-contained page, `scripts/check_style.py` checks a page or a palette (tokens, contrast, unreadable inherited colors, external resources).'
+---
+
+# HTML style
+
+`SKILL_DIR` = directory of this file. The source of the style is `templates/style.css` (CSS) + `templates/base.js`
+(behaviour), extracted from `html-doc/templates/technical.html`. `html-doc` (documentation pages) and `explain-doc`
+(explanation pages) are built on it; any other HTML page of the user uses it too.
+
+## 1. New page
+```bash
+python3 SKILL_DIR/scripts/new_page.py <body.html> -o <out.html> [--css extra.css] [--js extra.js] \
+    [--actions actions.html] [--lang-switch] --set PROJECT="Name" TITLE="Page title" FOOTER="..."
+```
+`<body.html>` = what goes inside `.layout`: an optional `<aside class="sidebar" id="sidebar">` (contents list) and
+`<main>` (`<header>` with `.page-eyebrow`, `h1`, `p.lead`, then one `<section id>` card per topic). The script
+inlines `style.css` + `base.js` (+ the extra files, after them) into `templates/page.html`: the result is **one
+self-contained file** that works offline and from `file://`. `--attr NAME=VALUE` adds attributes to `<html>`
+(`data-page`, `data-nav-title`, `data-default-level`). Several pages in one folder: `scripts/sync_nav.py <folder>`
+fills the top tabs / previous-next cards of every page (`html-doc` and `explain-doc` pages together) and gives
+them the same brand and shared top bar controls (GitHub link, EN / FR switch), reporting a page without French. Without a sidebar, add
+`.layout { grid-template-columns: minmax(0, 1fr); max-width: 880px; }` in the extra CSS.
+
+## 2. Tokens (never a raw color in a component: always `var(--x)`)
+| Token | Light | Dark | Use |
+|---|---|---|---|
+| `--bg` | `#efede8` | `#15171b` | page background (light: warm grey, never pure white - easier on the eyes) |
+| `--surface` | `#f7f5f0` | `#1d2025` | cards, top bar, buttons |
+| `--text` | `#1d1f23` | `#e6e7ea` | text |
+| `--muted` | `#5d636e` | `#9aa0ab` | secondary text, captions, table heads |
+| `--border` | `#dad6cd` | `#30343b` | borders, separators |
+| `--accent` / `--accent-soft` | `#2f5bd3` / `#e6ecfb` | `#7d9cf0` / `#232c45` | links, current tab, highlights / their background |
+| `--warn` / `--warn-soft` | `#a8540a` / `#fbefe3` | `#f0a868` / `#3a2a1b` | limits, risks |
+| `--ok` / `--ok-soft` | `#1f7a4a` / `#e3f4ea` | `#6fcf97` / `#1b3326` | validated, good practice |
+| `--code-bg` | `#e9e6df` | `#24272d` | inline code, code blocks, hover |
+| `--node` / `--node-alt` / `--line` | `#f7f5f0` / `#eef1f8` / `#868c97` | `#23262c` / `#283043` / `#747a85` | SVG boxes / highlighted box / edges |
+
+Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {...} }`
+**and** `:root[data-theme="dark"] {...}` (the switch forces one or the other). A new token is added in the 3 blocks.
+
+## 3. Type, space, layout
+- Fonts (no web font): text `system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` 16px / 1.6; code
+  `ui-monospace, SFMono-Regular, Menlo, Consolas, monospace` (0.9em inline, 13.5px blocks).
+- Scale: `h1` 34px (27px mobile), `h2` 22px, `h3` 17px, lead 17px muted, body 16px, tables 14.5px, captions /
+  footer 13px, eyebrow / table heads / sidebar title 12-13px uppercase with letter spacing (`.04em` - `.1em`).
+- Text width `75ch` max (`70ch` for the lead). Radius: cards 10px, code blocks 8px, tabs / buttons 6px, inline
+  code 4px, pills 999px. Card padding 28px 32px (20px 16px mobile), 24px between cards.
+- Layout `.layout`: sidebar 250px + content, max 1180px; from 1340px the content column (880px) is centered and
+  the sidebar sits on its left. Breakpoints 480 / 600 / 860px (sidebar off-canvas, menu button, tabs hidden) / 1100 / 1340 / 1900px, see the Responsive rule.
+- **Logo of the brand** (one for the whole site, never one per page): **always ask** (AskUserQuestion, French) when
+  the site has none chosen yet or the user wants to change it - **"Quel logo pour la documentation ?"**:
+  - `Logo du dépôt` (one option per logo found: `scripts/set_logo.py <docs dir> --list`, preview its path), only
+    when the repository has one;
+  - `Logo personnalisé` - a logo made for the project as a whole (what it is / does, not the topic of one page):
+    inline SVG `viewBox="0 0 32 32"`, 2-3 simple shapes readable at 26px, `currentColor` (= accent) + at most one
+    token color, no text longer than 2 letters; describe it in the option (and draw it in the `preview`);
+  - `Logo de documentation` (the default one of `templates/page.html`).
+  A site that already has its logo keeps it without asking (`sync_nav.py` copies the brand of the html-doc pages).
+  Apply the answer on every page: `scripts/set_logo.py <docs dir> --file <logo>` (repository or custom SVG saved
+  as `<docs dir>/logo.svg`) or `--default`. An SVG is inlined and cleaned (scripts, events, metadata removed, ids
+  prefixed), a raster image becomes a data URI.
+- Top bar 56px sticky: `.brand` (inline SVG logo in `currentColor` = accent, name, `.ver` badge hidden when empty;
+  the same on every page of a site, copied by `sync_nav.py`), `nav.tabs`,
+  `.spacer`, `.top-actions` (icon buttons | divider | EN/FR pill, theme switch).
+
+## 4. Components (classes of `style.css`)
+| Need | Markup |
+|---|---|
+| card per topic | `<section id="x"><h2>N. Title</h2>...</section>` (anchor `#` added on hover) |
+| page header | `<header><div class="page-eyebrow">Kind</div><h1>...</h1><p class="lead">...</p></header>` |
+| remark / limit / validated | `<div class="callout">`, `.callout.warn`, `.callout.ok` |
+| table | `<div class="table-wrap"><table><thead>...` (muted uppercase heads, row lines); `base.js` adds the box when it is missing, keeps the short cells on one line (never three words on three lines) as long as the table fits, lets a word over 32 characters break, and the table scrolls in its box when nothing else fits (`.no-fit` on a table to leave it alone; a table added later: `docTables.watch(table)`) |
+| anything else | `h4`-`h6`, `hr`, `blockquote`, `kbd`, `mark`, `samp`, `abbr`, `small`, `details` / `summary`, `dl`, `caption`, `fieldset` / `legend`, fields and plain buttons are styled by the template (`:where()` rules: any rule of a component wins); fields and scrollbars follow the theme by `color-scheme` |
+| code | `<code>` inline; `<pre data-title="File"><code>` block (1px `--border` outline so it shows on the page, title bar, **Copy** button; `data-nocopy` to remove) |
+| alternatives | `<div class="ctabs" data-tabs="g"><button data-tab="a">` + `<div class="ctab-panel" data-tabs="g" data-tab="a">` |
+| contents list | `<aside class="sidebar" id="sidebar"><p>Contents</p><a href="#x">1. ...</a>` (visible section highlighted) |
+| previous / next | `<nav class="pager"><a href="..."><span>Previous</span>Title</a><a class="next">` |
+| diagram | `<figure><svg viewBox="0 0 760 H" role="img" aria-label="...">` + `<figcaption>Figure N: ...` |
+| icon button | `<a class="icon-btn" aria-label="...">` + 16-18px inline SVG in `currentColor` |
+- A figure is never drawn above its `viewBox` width (`base.js` caps it: on a wide screen the labels would grow);
+  draw it at the size it is read (`viewBox="0 0 760 H"`, labels 11.5-13px).
+- **Arrows are computed, not typed**: `<path class="edge" data-from="a" data-to="b" marker-end="url(#arr)"/>`
+  (`a` / `b` = id of a `rect` / `circle` / `ellipse`, or of a `<g>` holding one); `data-from="a:right"` picks a
+  side (`top`, `bottom`, `left`, `right`), `data-bend="-0.2"` curves it (negative = above a left-to-right arrow),
+  `data-gap` leaves space; a label `<text data-label-for="<path id>" data-offset="-8">` is put on its middle.
+  `base.js` writes the `d` from the shapes, so an arrow always starts and ends on them; several arrows reaching
+  the same side of a box (without `:side`) are spread along it (never one point, never superposed). A hand-written arrow
+  must start and end on a shape border (`check_style.py` reports the others; `data-free` for an arrow pointing
+  to nothing on purpose).
+- Text: inside the drawing (`viewBox`), either fully inside a box or fully outside (never across its border),
+  `text-anchor="middle"` for centered labels.
+- SVG classes: `box`, `box-alt` (accent border), `group` (dashed frame), `lbl`, `small`, `title`, `mono` / `mono-s`
+  (values, code, file content in monospace), `edge`, `edge-accent`, `dash`, `arrow`, `arrow-accent` (markers once in
+  `<defs>`, their `fill` by `arrow` / `arrow-accent`, never left black). They follow the theme by themselves; **only these
+  classes** on texts and shapes (an invented one has no colour of its own), never a hard-coded `fill` / `stroke` colour -
+  check the drawing in both themes.
+- Choices shared by the site: the theme, language and level are saved under `<data-storage-key>-theme|lang|level`
+  (one key for the site, set by `sync_nav.py`) **and** carried by the links between the pages (`?lang=fr&theme=dark
+  &level=technical`, read on arrival): a choice made on one page applies to all of them, also from `file://`
+  where each page has its own storage.
+- Bilingual page: `--lang-switch`, content as `<span data-lang="en">..</span><span data-lang="fr">..</span>`, UI
+  strings with `data-i18n` translated by `window.DOC_FR` (`html-doc` explains it in full). English only by default.
+- A new component: built from the tokens, the same radius / spacing, a hover with `--accent` border or
+  `--code-bg` background, a visible `:focus-visible` (2px accent outline), works at 860px / 480px and in both themes.
+
+## 5. Rules
+- Self-contained: inline CSS / JS / SVG, no CDN, no framework, no web font, no external image (inline SVG or
+  `data:` URI); no gradient, no emoji, no shadow except the floating ones (open menu, popovers).
+- Accessible by the template (RGAA 4.1): `page.html` starts with a skip link to `<main id="main">` (`new_page.py` writes the id), `lang` on `<html>`, a visible `:focus-visible`; your body markup gives every `th` a `scope`, every scrolling block (`pre`, a wide table) `tabindex="0"` + `role="region"` + a name, and never skips a heading level.
+- Contrast WCAG AA in **both** themes: text >= 4.5:1, lines / meaningful graphics >= 3:1.
+- Scrollbars: thin, a transparent track and a rounded thumb from `--line` (stronger on hover), never the browser's
+  default bar (on Linux a wide grey track appears on hover): the "scrollbars" block of `templates/style.css`, keep it.
+- An element with its own background (`code`, `kbd`, `mark`, badge) inside an element that sets a light text
+  color (accent button, dark table head, colored banner) gets an explicit override
+  (`th code { background: rgba(255,255,255,.18); color: #fff; }`): it never inherits a color unreadable on its
+  own background (`check_style.py` finds them).
+- **Responsive (every page, every platform)**: the pages must work as well on a phone, a tablet, a TV, a foldable
+  or a touch laptop as on a desktop (`templates/style.css`, "Responsive" block, already in the templates - keep it):
+  - `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`, never
+    `user-scalable=no` / `maximum-scale=1`; `text-size-adjust: 100%`; safe-area insets (`env(safe-area-inset-*)`)
+    on the bar, the layout and the footer (notches, rounded corners, landscape);
+  - mobile first thinking, breakpoints 480 / 600 / 860 / 1100 / 1340 / 1900px (phone, large phone, tablet and
+    off-canvas menu, small laptop, centered column, TV / 4K bigger base font) + short landscape screens
+    (`max-height: 480px`); no fixed width beyond `min(..., 100%)`, tables / code / formulas / wide drawings scroll
+    inside their own box (`.table-wrap`, `pre`, `.formula`), long words / paths wrap (`overflow-wrap`);
+  - **touch**: nothing that needs hover - `@media (hover: none)` shows the copy buttons / anchors, no tooltip
+    that needs a hover (`dfn` opens on tap / focus), `@media (pointer: coarse)` gives targets of 44px minimum;
+    form fields 16px on small screens (iOS zooms under that); the sidebar menu closes on a tapped entry,
+    on an outside tap and on Escape; 100dvh (not only 100vh) for full-height panels;
+  - interactions have a touch equivalent (drag = one finger, zoom = pinch, pan = two fingers, tap = click; right
+    click / Shift / keyboard are shortcuts only), `touch-action` set on canvases;
+  - `prefers-reduced-motion`, `forced-colors`, and a print style (no bar / sidebar / buttons, cards without border).
+- Motion: transitions 0.15-0.3s; animations stop under `@media (prefers-reduced-motion: reduce)`.
+- `localStorage` (theme, language, view state) always in `try / catch` under `<storage-key>-<name>`.
+
+## 6. Define or change a style (palette, color, font)
+1. Ask (AskUserQuestion, French) when not given: **"Quelle palette ?"** - `Style par défaut (Recommandé)` ·
+   `Couleur du projet / de la marque` (hex or logo given) · `Palette personnalisée`. Font: system stacks unless the
+   user asks (then a local / system font, never a downloaded one).
+2. Change only the tokens, never the components: for a project color, set `--accent` (light: dark enough for
+   4.5:1 on `--surface`; dark: a lighter tint of the same hue), `--accent-soft` (accent at ~10% on `--surface`,
+   light; ~20% on `--bg`, dark), keep the neutrals. A full palette defines every token of section 2 in both themes.
+3. Write it as a `:root` override in the page extra CSS (or in `templates/style.css` when the default itself
+   changes, then the same values in the `<style>` of the `html-doc` templates).
+4. `python3 SKILL_DIR/scripts/check_style.py <page.html|css> [--compare SKILL_DIR/templates/style.css]`: 0 error
+   (tokens of both themes, contrast, inherited colors, self-contained, diagrams: arrows touching their shapes,
+   text inside the drawing and not across a box border); `--compare` lists what differs from the
+   default.
+
+## 7. Check before delivering
+- `check_style.py` on the page: 0 error (the sources: tokens, contrast of the tokens, a `var()` defined nowhere, an invalid colour, a tag or a class nothing styles, the viewport, fixed widths).
+- `check_render.py <page.html[?query]> [--widths 1280,768,375] [--themes light,dark] [--click SELECTOR ...] [--shots DIR]`: 0 error (`--click` measures again after a click: a menu, a popover, the next step; `?q=word` gives the page its state: a search open, an embed mode). Headless Firefox measures what is really drawn, in both themes, at each width, in each
+  language and level the page offers, tab panels and `<details>` opened: every text against what is really behind it (black on black, a chip in a banner, an SVG text on its box), the page
+  scrolling sideways, what sticks out or starts off the left of the screen, a text past the edge of its card or cell, a word cut by a column too narrow, three words of a cell on three lines in a column under 150 px; as warnings a sentence squeezed in a column, a column twice too wide, an SVG text drawn under 8 px.
+- Look at it: `--shots DIR` writes a screenshot per theme and width: every text readable, tap targets usable, switches and the menu working. A long or crowded content is worth a try: a table
+  of 20 columns, a word of 100 characters, a very long title, a long project name.
+- No `{{...}}` left (`new_page.py` reports them).

@@ -33,7 +33,7 @@ def for_claude_ai(text: str) -> str:
     return NOTE.sub("`<name>` (a skill) = the folder of that skill, next to this one: `../<name>`.", text)
 
 def skills() -> Iterator[Path]:
-    for md in sorted(REPO.glob("*/*/SKILL.md")):
+    for md in sorted(REPO.glob("skills/*/*/SKILL.md")):
         yield md.parent
 
 def build(skill: Path, out: Path) -> Path:
