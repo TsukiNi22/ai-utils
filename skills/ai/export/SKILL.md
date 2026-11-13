@@ -7,6 +7,8 @@ metadata:
 
 # Export: a handover file for another session / machine / model
 
+Stop and resume in the same project, at the next `continue`: the `pause` skill, not this one.
+
 Write **one file** another AI reads to continue the work **without this conversation**: what is wanted, what is done,
 what is left and exactly how to go on. Default `PASSATION.md` at the root of the project (the cwd); another name or
 place only when the user says so. The reader is an AI: apply `rtk` (terse facts, one per line, no prose, no

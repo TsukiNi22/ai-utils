@@ -9,7 +9,7 @@ one teaches the assistant how I work (code style, file layout, tooling), so that
 One installer, [`setup.sh`](setup.sh), for the skills, the [tools](#tools) and the global [context](#context).
 
 <!-- generated:counts -->
-**58 skills** in 12 categories and **9 routers**.
+**60 skills** in 12 categories and **9 routers**.
 <!-- /generated:counts -->
 
 ### Table of Contents
@@ -36,7 +36,16 @@ wget -qO- https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | b
 ```
 
 > [!NOTE]
-> Requires `git` and `bash`. Every command of the next part works the same way, after `bash -s --`.
+> Requires `git` and `bash`. `install` alone takes everything; replace it, or add names after it, to choose:
+>
+> | After `bash -s --` | Effect |
+> |---|---|
+> | `list` | what is available: categories, skills, tools, context (nothing installed) |
+> | `install cpp-class git` | only these skills (+ the skills they require) |
+> | `install cpp/ docs/` | whole categories (`@cpp` works too) |
+> | `install skills` / `install tools` / `install context` | one kind only: every skill, every tool (claude-cluster), the global context |
+> | `install skills context` | kinds and names mix |
+> | `status`, `update`, `doctor --fix`, `remove` | the other commands, the same as from a clone (next part) |
 
 ## Quick Setup - 2 (from a clone)
 
@@ -76,6 +85,7 @@ Once installed, a skill is used **automatically** when the request matches it, o
 | update every doc after a change | *"update all the docs"* (`docs-update`) |
 | a PDF report, a presentation | *"make a PDF report of ..."* (`report`), *"make slides on ..."* (`presentation`) |
 | be asked the doubts first, get ideas | `/clarify`, `/ideation` |
+| stop cleanly now, resume later | `/pause`, then *"continue"* (`continue-work`) |
 | hand the work to another session | *"export the session"* (`export`) |
 | free disk space | *"clean my computer"* (`computer-clean`) |
 
@@ -115,7 +125,7 @@ each skill does, what it installs with it) and examples.
 | [Legal](skills/legal/README.md) | Its license, and the compliance check and setup - GDPR / RGPD, cookies, legal notice, terms, consumer law, accessibility (RGAA, EAA), language, licenses and credits, mandatory mentions, DSA, AI Act, CRA, NIS2, Data Act - global or web | `legal-check`, `legal-setup`, `license` |
 | [UX](skills/ux/README.md) | Several languages (multilingual-project, multilingual-website) and visual modes light / dark / system / high contrast (color-modes-project, color-modes-website) | `color-modes-project`, `color-modes-website`, `multilingual-project`, `multilingual-website` |
 | [System](skills/system/README.md) | Free space on the computer and in the data of Claude Code / claude-cluster, chosen in a QCM | `computer-clean` |
-| [AI workflow](skills/ai/README.md) | Token-minimal outputs and --rtk modes, questions through the QCM / Q&A popup, clarification, ideation, a run without interruption, session context setup, writing in the user's voice, handover file, project onboarding, presentations from a plan or an idea (PDF / HTML / PPTX), full git permission from the prompt | `ask-at-end`, `clarify`, `export`, `full-permission`, `ideation`, `interactive-questions`, `onboard`, `presentation`, `rtk`, `setup-context`, `write-like-me` |
+| [AI workflow](skills/ai/README.md) | --rtk outputs, QCM questions, clarification, ideation, a run without interruption, a clean pause resumed at the next continue, session context, writing in the user's voice, handover, onboarding, presentations (PDF / HTML / PPTX), full git permission | `ask-at-end`, `clarify`, `continue-work`, `export`, `full-permission`, `ideation`, `interactive-questions`, `onboard`, `pause`, `presentation`, `rtk`, `setup-context`, `write-like-me` |
 <!-- /generated:categories -->
 
 ## Tools

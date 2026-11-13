@@ -16,6 +16,8 @@ interactive-questions
 clarify
 ideation
 ask-at-end
+continue-work
+pause
 setup-context
 onboard
 export

@@ -50,6 +50,8 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | hand the work over to another session / machine / model ("export", "passation", "handoff", PASSATION.md) | `export` (uses `rtk`) | - |
 | set up the context before working ("setup le contexte", read the repo and the old / archived sessions, load the useful skills / MCP) | `setup-context` (uses `onboard` when installed, `interactive-questions`) | - |
 | no interruption until the end ("ne pose aucune question", "fais tout d'une traite", "pose tes questions à la fin") | `ask-at-end` (asks at the end with `interactive-questions` / `ideation`) | - |
+| stop cleanly now and resume later ("stop tout proprement", "mets en pause", "on reprendra plus tard", /pause) | `pause` (checkpoint in `~/.claude/pauses`) | - |
+| resume a paused task ("continue", "reprends" after a pause, a checkpoint waiting for the project) | `continue-work` | - |
 | write in the user's own voice ("écris comme moi", "avec mes mots", a message / note / prompt in his style) | `write-like-me` | - |
 | set up the context of a project / folder before working on it (read the repo, its git history, the earlier sessions that touched it: "onboard", "lis tout le repo", "prends connaissance du projet"; the project only, the skills / MCP of the session too: `setup-context`) | `onboard` (uses `rtk`) | - |
 | make a presentation / slides / a deck / a PDF or PPT from a plan or an idea ("fais une présentation", "un ppt") | `presentation` (uses `interactive-questions`) | - |

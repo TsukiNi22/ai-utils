@@ -35,7 +35,7 @@
     },
     {
       "name": "ai-skills",
-      "description": "AI context: token-minimal outputs and --rtk modes, questions through the QCM / Q&A popup, clarification, ideation, a run without interruption, session context setup, writing in the user's voice, handover file, project onboarding, presentations from a plan or an idea (PDF / HTML / PPTX), full git permission from the prompt (skills: ask-at-end, clarify, export, full-permission, ideation, interactive-questions, onboard, presentation, rtk, setup-context, write-like-me)",
+      "description": "AI workflow: --rtk outputs, QCM questions, clarification, ideation, a run without interruption, a clean pause resumed at the next continue, session context, writing in the user's voice, handover, onboarding, presentations (PDF / HTML / PPTX), full git permission (skills: ask-at-end, clarify, continue-work, export, full-permission, ideation, interactive-questions, onboard, pause, presentation, rtk, setup-context, write-like-me)",
       "source": "./",
       "strict": false,
       "skills": [
