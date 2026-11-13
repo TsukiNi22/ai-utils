@@ -1,0 +1,17 @@
+{
+ "attachments": "attachments",
+ "graph": "taxonomy#graph",
+ "orchestrator": "orchestrator",
+ "palette": "keys",
+ "permissions": "permissions-models",
+ "phone": "notifications-apk",
+ "pins": "pins",
+ "prompt": "prompt-editing",
+ "question": "callbacks-mcp#questions",
+ "schedules": "tasks-schedules#schedules",
+ "settings": "settings",
+ "sub-global": "sub-global",
+ "tasks": "tasks-schedules",
+ "voice": "voice",
+ "web": "interfaces#web"
+}
