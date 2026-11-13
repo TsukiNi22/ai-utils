@@ -1,8 +1,8 @@
 ---
 name: coding-style
-description: Tsukini's coding style for every language other than C++ (derived from cpp-style and from his real Python, shell, Lua, YAML and CMake code) - naming, 4-space indentation, layout in sections, error handling, explicit types, English. Python, shell/bash, Lua, JavaScript/TypeScript, Rust, Go, Java/C#, C, YAML/JSON and a fallback for any language. Use whenever writing, editing, refactoring or reviewing non-C++ code for the user (C++: cpp-style; CMake: cmake-style; comments: comments).
+description: Tsukini's coding style for every language other than C++ (derived from cpp-style and from his real Python, shell, Lua, YAML and CMake code) - naming, 4-space indentation, layout in sections, error handling, explicit types, English. Python, shell/bash, Lua, JavaScript/TypeScript, Rust, Go, Java/C#, C, assembly (NASM x86-64), YAML/JSON and a fallback for any language. Use whenever writing, editing, refactoring or reviewing non-C++ code for the user (C++: cpp-style; CMake: cmake-style; comments: comments).
 metadata:
-  summary: 'My coding style for every language other than C++ (Python, shell, Lua, JS/TS, C, Rust/Go, YAML/JSON), derived from `cpp-style` and my real scripts.'
+  summary: 'My coding style for every language other than C++ (Python, shell, Lua, JS/TS, C, NASM assembly, Rust/Go, YAML/JSON), derived from `cpp-style` and my real scripts.'
 ---
 
 # Tsukini coding style (any language except C++)
@@ -32,7 +32,8 @@ local style wins. Comments: the `comments` skill. Everything (code, identifiers,
   needs two lines or more, a lone line joins the closest level and takes its column (see `cpp-style`, checked in
   C++ by xstyle `CPP-ONELINER-ALIGN`). **Trailing comments are glued** to the code, one space before the marker
   (`timeout = 7 # seconds`, `int fd = -1; // closed`), never on a shared column; the exceptions are the include /
-  import comments (one column per block) and formats whose own convention aligns (CMake option lists).
+  import comments (one column per block) and formats whose own convention aligns (CMake option lists, the trailing
+  `;` comments of consecutive assembly lines).
 - Imports / includes explicit (no wildcard import), always in this order (same rule as the C++ includes of
   `cpp-style`):
   1. what the **personal libraries** need before being imported (a C `#define`, an environment variable, a path
@@ -124,14 +125,60 @@ done
 - Errors: throw `Error` subclasses with a context message, never swallow them; `async`/`await` over raw promises.
 - Self-contained HTML pages: inline script in an IIFE with `"use strict"` (like the html-doc templates).
 
-## Rust / Go / Java / C# / C
+## Rust / Go / Java / C#
 - Language conventions for naming (`rustfmt`, `gofmt`, ...) but the user's spirit: explicit types on public items,
   early returns, errors propagated with context (`Result` + `?` with a message, Go `fmt.Errorf("...: %w", err)`),
   no panic/exit in libraries, constants named.
-- C: same layout as C++ (`cpp-class` sections, Epitech/Xartania header per `comments`), `snake_case`, functions
-  returning `OK`/`KO` (or an error code) and checking their pointer arguments first.
+
+## C
+- Same layout as the C++ (`cpp-style` / `cpp-class` sections, include guard `NAME_H` with its content indented,
+  braces, spacing, include order and comments, `(void)` for an empty parameter list), the **same file header** as the
+  C++ (XARTANIA banner, none or a text, per `comments`); a `.h` is C when the project has no C++ sources.
+- **Pointer on the type**, like the C++: `char* buf`, `node_t* new_node(void);`.
+- Names: functions, parameters, variables `snake_case`; `struct name_s` / `union name_u` / `enum name_e` with their
+  `typedef ... name_t;`; enum values, macros and global constants `UPPER_SNAKE`.
+- Functions return `OK` / `KO` (or an error code / `NULL`) and test their pointer parameters before using them
+  (`if (!data || !input) return KO;` first); a result is never ignored silently: use it, or `(void)f(x);` on purpose.
+- A function body stays under **40 lines of code** (empty and comment lines not counted) and **4 nested control
+  blocks** (`if` / `for` / `while` / `switch` / `do` / `else`, a bare `{ }` is not a level): early returns, or an inner
+  function.
 - C / C++ preprocessor: a conditional (`#if` / `#ifdef` / `#else` / `#endif`) at the indentation of the code around it,
   its content one level more, one conditional per section of a header (`cpp-style` "Indentation & braces").
+
+## Assembly (NASM x86-64)
+- NASM (Intel) syntax, `.asm` (`.s` / `.S` read as NASM; GAS files keep their own syntax). Everything lower case
+  (mnemonics, registers, sizes, directives) except the constants.
+- File: the C / C++ header in `;` comments, then `extern` at the top, the sections in the order `.data`, `.rodata`,
+  `.bss`, `.text`, the `global` right after `section .text` (one per line, each defined in the file, no unused
+  `extern`).
+- Indentation: `section` and the function labels at column 0, their content at 4; a local label (`.loop`) at the
+  level of its block and its content one level more, up to its last backward jump (a loop), else up to the next label;
+  a comment line at the level of the code under it.
+
+```nasm
+section .text
+    global my_strlen
+
+my_strlen: ; in: rdi | out: rax
+    xor rax, rax
+    .loop:
+        cmp byte [rdi + rax], 0
+        je .end
+        inc rax
+        jmp .loop
+    .end:
+        ret
+```
+
+- Names: labels `snake_case`, **static functions** (called, not `global`) prefixed by `_` (`_my_helper`), the global
+  ones never (`_start` excepted), the jump labels local (`.name`), data labels `snake_case` (never a register name),
+  `equ` / `%define` / `%assign` / `%macro` in `UPPER_SNAKE`.
+- Every function label carries the comment of its registers (`; in: rdi, rsi | out: rax`); a `mov rax, N` before a
+  `syscall` names it (`mov rax, 1 ; write`); the trailing comments of consecutive lines on one column.
+- Functions: never fall through into the next one (end with `ret` / `jmp` / the exit syscall); a global function keeps
+  `rbx`, `rbp`, `r12`-`r15` (System V: `push` / `pop` them); a stack frame (`push rbp` / `mov rbp, rsp`) only when the
+  stack is used (push / pop, `call`, `[rbp]` / `[rsp]`, `sub rsp`) and restored (`pop rbp` / `leave`) before every
+  `ret`; `xor reg, reg` rather than `mov reg, 0`.
 
 ## YAML / JSON / config
 - YAML: 2 spaces (format constraint), keys `snake_case` or the tool's convention, GitHub workflows named
@@ -144,7 +191,9 @@ formatter conventions, and say that no specific rule covers it.
 
 ## Checking
 `xstyle` ([TsukiNi22/xstyle](https://github.com/TsukiNi22/xstyle), `curl -fsSL https://tsukini22.github.io/my-universe/install.sh | bash -s` then `sudo dnf|apt|pacman install xstyle` (packages of [my-universe](https://tsukini22.github.io/my-universe/), sources: [TsukiNi22/xstyle](https://github.com/TsukiNi22/xstyle); no curl: `wget -qO-` instead of `curl -fsSL`)) checks the generic rules of every language (tabs, trailing
-spaces, empty lines, indentation by 4, TODO tags) and the Python / shell ones (wildcard imports, bare `except:`,
+spaces, empty lines, indentation by 4, TODO tags) the C ones (`C-*`: names, `x_s` / `x_t`, pointers tested before use, ignored results, 40 lines, 4 levels), the
+assembly ones (`ASM-*`: layout, names, declarations, ABI, stack frame, fall through, syscall names) and the Python /
+shell ones (wildcard imports, bare `except:`,
 type hints, `print` to stderr, `open` without encoding, shebang, `set -euo pipefail`, `[[ ]]`) and the Rust ones
 (`unwrap` / `panic!` / `todo!` outside the tests, glob imports, naming, `unsafe` without `// SAFETY:`, errors on
 stdout, `dbg!`): when it is installed,
