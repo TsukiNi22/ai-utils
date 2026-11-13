@@ -3,7 +3,7 @@
 [site]
 name = "claude-cluster"
 repo = "https://github.com/TsukiNi22/ai-utils"
-pages_url = "https://tsukini22.github.io/skills/claude-cluster/"
+pages_url = "https://tsukini22.github.io/ai-utils/claude-cluster/"
 source_dir = "tools/claude-cluster"
 release_url = "https://github.com/TsukiNi22/ai-utils/releases"
 
