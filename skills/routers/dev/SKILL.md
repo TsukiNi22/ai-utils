@@ -82,6 +82,8 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | protocol of a networking project (frames, handshake, codes, commands, storage) | `protocol-doc` | `doc` |
 | any other HTML page, palette / color / font | `html-style` | `doc` |
 | free space: caches, Docker, old builds, Claude Code / claude-cluster leftovers | `computer-clean` | - |
+| set up / scan / refresh the creative tools (audio, image, video, 3D, simulation / VFX / rendering, their MCP servers) as skills | `setup-studio` (then `/studio` routes the creative requests) | - |
+| a creative request: sound, music, voice, image, video, 3D model, simulation, render | the `studio` router when it was generated (`/studio`), else propose `setup-studio` | - |
 | commit the current diff locally ("fais le commit") | `git-commit` | `git` |
 | update every doc / site / wiki / package / install script after changes or a new version | `docs-update` | `doc` |
 | commit message, branch, PR, tag, release, CHANGELOG | `git-conventions` | `git` |

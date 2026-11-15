@@ -23,10 +23,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SKILLS = REPO / "skills"
-ORDER = ["routers", "cpp", "python", "libutils", "tests", "style", "docs", "git", "audit", "legal", "ux", "system", "ai"]
+ORDER = ["routers", "cpp", "python", "libutils", "tests", "style", "docs", "git", "audit", "legal", "ux", "studio", "system", "ai"]
 TITLES = {"routers": "Routers", "cpp": "C++", "python": "Python", "libutils": "libutils", "tests": "Tests",
           "style": "Style", "docs": "Documentation", "git": "Git", "audit": "Audit", "legal": "Legal", "ux": "UX",
-          "system": "System", "ai": "AI workflow"}
+          "studio": "Studio", "system": "System", "ai": "AI workflow"}
 SUMMARY = re.compile(r"^  summary: '((?:[^']|'')*)'$", re.M)
 BLOCK = "<!-- generated:{0} -->\n{1}\n<!-- /generated:{0} -->"
 

@@ -1,0 +1,760 @@
+{
+    "checked": "2026-11",
+    "about": "Free tools (no subscription) per creative domain, with their license and whether their use / outputs can be commercial. commercial: yes = free for commercial work, conditions = see note, no = non-commercial only. Checked on the date above: confirm the license at its source before relying on it for a commercial project.",
+    "domains": {
+        "audio": {
+            "title": "Audio: music, sound effects, voice",
+            "roles": {
+                "edit": "record, cut, clean and mix a recording",
+                "compose": "compose and arrange music (DAW, sequencer, score)",
+                "synth": "instruments, synthesizers, rendering MIDI to audio",
+                "sfx": "make sound effects (game / UI / foley)",
+                "process": "batch processing from the command line (convert, normalize, stretch, trim)",
+                "stems": "split a song into stems (voice, drums, bass...)",
+                "voice": "text to speech, voice generation",
+                "transcribe": "speech to text, subtitles",
+                "generate": "AI music / sound generation",
+                "assets": "libraries of ready sounds"
+            }
+        },
+        "image": {
+            "title": "Image: 2D, retouching, painting, vector, generation",
+            "roles": {
+                "edit": "retouch, compose, layers",
+                "paint": "digital painting, drawing, textures by hand",
+                "vector": "vector drawing, logos, icons, SVG",
+                "photo": "RAW development and photo correction",
+                "batch": "batch resize / convert / crop from the command line",
+                "optimize": "compress for the web (PNG, JPEG, WebP, AVIF)",
+                "generate": "AI image generation and editing",
+                "upscale": "upscaling, restoration",
+                "cutout": "background removal",
+                "vectorize": "raster to vector",
+                "assets": "libraries of ready images and textures"
+            }
+        },
+        "video": {
+            "title": "Video: editing, effects, motion graphics, generation",
+            "roles": {
+                "edit": "non-linear editing (timeline)",
+                "cli": "cut, convert, encode, assemble from the command line",
+                "compositing": "compositing, keying, tracking",
+                "motion": "motion graphics, 2D animation, programmatic animation",
+                "record": "screen / camera recording",
+                "subtitles": "subtitles: transcription, timing, burn-in",
+                "transcode": "transcoding presets",
+                "generate": "AI video generation",
+                "download": "fetch a video / audio from a URL"
+            }
+        },
+        "3d": {
+            "title": "3D: modeling, sculpting, CAD, texturing",
+            "roles": {
+                "model": "modeling, sculpting, UV, rigging, animation",
+                "cad": "parametric CAD, parts for 3D printing",
+                "mesh": "mesh processing: repair, decimate, convert",
+                "texture": "procedural materials and textures",
+                "lowpoly": "low-poly / voxel / game assets",
+                "generate": "AI image-to-3D / text-to-3D",
+                "realtime": "real-time engine (scenes, games, interactive)",
+                "assets": "libraries of ready models, HDRIs, materials"
+            }
+        },
+        "vfx": {
+            "title": "Simulation, VFX and rendering",
+            "roles": {
+                "sim": "physics in a scene: fluids, smoke, fire, cloth, rigid bodies, particles",
+                "render": "offline rendering (path tracing)",
+                "compositing": "compositing of render passes, color",
+                "cfd": "engineering simulation (CFD, FEM) and its visualization",
+                "physics": "scientific / robotics physics from code",
+                "realtime": "real-time effects (particles, shaders)"
+            }
+        }
+    },
+    "tools": [
+        {
+            "id": "ffmpeg", "name": "FFmpeg", "kind": "cli",
+            "domains": {"audio": ["process"], "video": ["cli", "transcode"]},
+            "detect": {"bin": ["ffmpeg"]}, "version": ["-version"],
+            "license": "LGPL-2.1+ / GPL-2+", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "ffmpeg-free (Fedora) or ffmpeg (RPM Fusion, with x264 / x265 / NVENC)"},
+            "gpu": "optional: NVENC (NVIDIA), VAAPI (AMD / Intel)",
+            "why": "the reference for any conversion, cut, filter or encode, scriptable and exact",
+            "recipes": [
+                ["cut without re-encoding", "ffmpeg -ss 00:01:00 -to 00:02:30 -i in.mp4 -c copy cut.mp4"],
+                ["H.264 for the web", "ffmpeg -i in.mov -c:v libx264 -crf 20 -preset slow -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart out.mp4"],
+                ["NVIDIA encode", "ffmpeg -i in.mov -c:v h264_nvenc -preset p5 -cq 21 -c:a aac out.mp4"],
+                ["join clips of the same format", "printf \"file '%s'\\n\" a.mp4 b.mp4 > list.txt && ffmpeg -f concat -safe 0 -i list.txt -c copy out.mp4"],
+                ["burn subtitles", "ffmpeg -i in.mp4 -vf subtitles=subs.srt -c:a copy out.mp4"],
+                ["extract the audio", "ffmpeg -i in.mp4 -vn -c:a pcm_s16le audio.wav"],
+                ["image sequence to video", "ffmpeg -framerate 24 -i frame_%04d.png -c:v libx264 -pix_fmt yuv420p out.mp4"],
+                ["good GIF", "ffmpeg -i in.mp4 -vf \"fps=15,scale=640:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse\" out.gif"],
+                ["loudness to -14 LUFS (streaming)", "ffmpeg -i in.wav -af loudnorm=I=-14:TP=-1.5:LRA=11 out.wav"],
+                ["music ducked under a voice", "ffmpeg -i voice.wav -i music.wav -filter_complex \"[0:a]asplit[v1][v2];[1:a][v1]sidechaincompress=threshold=0.05:ratio=8[duck];[v2][duck]amix=inputs=2:duration=first\" mix.wav"]
+            ]
+        },
+        {
+            "id": "sox", "name": "SoX", "kind": "cli",
+            "domains": {"audio": ["process", "sfx"]},
+            "detect": {"bin": ["sox"]}, "version": ["--version"],
+            "license": "GPL-2+ / LGPL-2.1+", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "sox"},
+            "why": "the audio Swiss knife: normalize, trim silences, resample, effects, quick synthesized beeps",
+            "recipes": [
+                ["normalize to -1 dB", "sox in.wav out.wav norm -1"],
+                ["trim the silence at both ends", "sox in.wav out.wav silence 1 0.1 1% reverse silence 1 0.1 1% reverse"],
+                ["resample to 48 kHz", "sox in.wav -r 48000 out.wav"],
+                ["UI beep", "sox -n beep.wav synth 0.2 sine 880 fade 0 0.2 0.05"],
+                ["spectrogram", "sox in.wav -n spectrogram -o spectrogram.png"]
+            ]
+        },
+        {
+            "id": "rubberband", "name": "Rubber Band", "kind": "cli",
+            "domains": {"audio": ["process"]},
+            "detect": {"bin": ["rubberband"]},
+            "license": "GPL-2+ (a commercial license exists for linking the library)", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "rubberband"},
+            "why": "time stretch and pitch shift of high quality",
+            "recipes": [
+                ["slower by 25 % (same pitch)", "rubberband -t 1.25 in.wav out.wav"],
+                ["up 2 semitones (same speed)", "rubberband -p 2 in.wav out.wav"]
+            ]
+        },
+        {
+            "id": "audacity", "name": "Audacity", "kind": "gui",
+            "domains": {"audio": ["edit"]},
+            "detect": {"bin": ["audacity"], "flatpak": ["org.audacityteam.Audacity"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "audacity", "flatpak": "org.audacityteam.Audacity"},
+            "mcp": {"search": "audacity mcp server (drives Audacity through its mod-script-pipe)"},
+            "why": "simple recording and editing, noise reduction, effects; scriptable through mod-script-pipe"
+        },
+        {
+            "id": "ardour", "name": "Ardour", "kind": "gui",
+            "domains": {"audio": ["edit", "compose"]},
+            "detect": {"bin": ["ardour", "ardour8", "ardour9"], "flatpak": ["org.ardour.Ardour"]},
+            "license": "GPL-2+", "commercial": "yes", "cost": "free",
+            "note": "the official binaries of ardour.org are pay-what-you-want; the distribution / Flathub packages are free",
+            "install": {"dnf": "ardour8", "flatpak": "org.ardour.Ardour"},
+            "mcp": {"search": "ardour mcp server (OSC or Lua scripting)"},
+            "why": "a full DAW: multitrack recording, mixing, automation, plugins (LV2, VST3), Lua scripting"
+        },
+        {
+            "id": "lmms", "name": "LMMS", "kind": "gui",
+            "domains": {"audio": ["compose", "synth"]},
+            "detect": {"bin": ["lmms"], "flatpak": ["io.lmms.LMMS"]},
+            "license": "GPL-2+", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "lmms", "flatpak": "io.lmms.LMMS"},
+            "why": "pattern-based music production with built-in synths, quick for game / electronic music"
+        },
+        {
+            "id": "musescore", "name": "MuseScore", "kind": "gui",
+            "domains": {"audio": ["compose"]},
+            "detect": {"bin": ["mscore", "musescore", "mscore4portable"], "flatpak": ["org.musescore.MuseScore"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "musescore", "flatpak": "org.musescore.MuseScore"},
+            "why": "sheet music and orchestral writing, exports audio, MIDI and PDF",
+            "recipes": [["score to PDF / audio", "mscore -o score.pdf score.mscz && mscore -o score.mp3 score.mscz"]]
+        },
+        {
+            "id": "lilypond", "name": "LilyPond", "kind": "cli",
+            "domains": {"audio": ["compose"]},
+            "detect": {"bin": ["lilypond"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "lilypond"},
+            "why": "sheet music written as text (engraving quality), MIDI with a \\midi block",
+            "recipes": [["engrave", "lilypond score.ly"]]
+        },
+        {
+            "id": "hydrogen", "name": "Hydrogen", "kind": "gui",
+            "domains": {"audio": ["compose"]},
+            "detect": {"bin": ["hydrogen"], "flatpak": ["org.hydrogenmusic.Hydrogen"]},
+            "license": "GPL-2+", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "hydrogen", "flatpak": "org.hydrogenmusic.Hydrogen"},
+            "why": "drum machine and pattern sequencer"
+        },
+        {
+            "id": "surge", "name": "Surge XT", "kind": "gui",
+            "domains": {"audio": ["synth", "sfx"]},
+            "detect": {"bin": ["surge-xt", "Surge XT"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"url": "https://surge-synthesizer.github.io/"},
+            "why": "a large hybrid synthesizer (standalone, LV2, VST3, CLAP) for leads, pads, risers, sci-fi sounds"
+        },
+        {
+            "id": "fluidsynth", "name": "FluidSynth", "kind": "cli",
+            "domains": {"audio": ["synth"]},
+            "detect": {"bin": ["fluidsynth"]}, "version": ["--version"],
+            "license": "LGPL-2.1+", "commercial": "yes", "cost": "free",
+            "note": "the sound depends on the SoundFont: FluidR3_GM (MIT) and GeneralUser GS allow commercial use, others vary",
+            "install": {"dnf": "fluidsynth fluid-soundfont-gm"},
+            "why": "renders a MIDI file to audio with a SoundFont, from the command line",
+            "recipes": [["MIDI to WAV", "fluidsynth -ni -F out.wav -r 48000 /usr/share/soundfonts/FluidR3_GM.sf2 song.mid"]]
+        },
+        {
+            "id": "supercollider", "name": "SuperCollider", "kind": "cli",
+            "domains": {"audio": ["synth", "sfx"]},
+            "detect": {"bin": ["sclang", "scsynth"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "supercollider"},
+            "why": "sound synthesis as code: procedural sound effects, generative music"
+        },
+        {
+            "id": "puredata", "name": "Pure Data", "kind": "gui",
+            "domains": {"audio": ["synth", "sfx"]},
+            "detect": {"bin": ["pd", "puredata"]},
+            "license": "BSD-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "puredata"},
+            "why": "visual patching for interactive and procedural audio"
+        },
+        {
+            "id": "csound", "name": "Csound", "kind": "cli",
+            "domains": {"audio": ["synth", "sfx"]},
+            "detect": {"bin": ["csound"]},
+            "license": "LGPL-2.1+", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "csound"},
+            "why": "sound synthesis language, renders offline to a file",
+            "recipes": [["render", "csound piece.csd -o out.wav"]]
+        },
+        {
+            "id": "jsfxr", "name": "jsfxr (sfxr.me)", "kind": "web",
+            "domains": {"audio": ["sfx"]},
+            "detect": {},
+            "license": "Unlicense (jsfxr), the sounds made are yours", "commercial": "yes", "cost": "free",
+            "install": {"url": "https://sfxr.me/"},
+            "why": "retro game sound effects in seconds (jump, coin, laser, explosion), in the browser"
+        },
+        {
+            "id": "demucs", "name": "Demucs", "kind": "python",
+            "domains": {"audio": ["stems"]},
+            "detect": {"bin": ["demucs"], "python": ["demucs"]},
+            "license": "MIT", "commercial": "yes", "cost": "free",
+            "install": {"pip": "demucs"},
+            "gpu": "optional (CUDA); a few minutes per song on the CPU",
+            "why": "the best free stem separation (vocals, drums, bass, other)",
+            "recipes": [["vocals / accompaniment", "demucs --two-stems=vocals -o stems song.mp3"]]
+        },
+        {
+            "id": "piper", "name": "Piper", "kind": "python",
+            "domains": {"audio": ["voice"]},
+            "detect": {"bin": ["piper"], "python": ["piper"]},
+            "license": "GPL-3 (piper1-gpl) / MIT (older releases)", "commercial": "conditions", "cost": "free",
+            "note": "each voice has its own license (model card): some are CC-BY, some research only",
+            "install": {"pip": "piper-tts"},
+            "why": "fast local text to speech on the CPU, many languages (French voices: siwis, upmc, tom)",
+            "recipes": [["speak a line", "python3 -m piper.download_voices fr_FR-siwis-medium && python3 -m piper -m fr_FR-siwis-medium -f line.wav -- 'Bonjour'"]]
+        },
+        {
+            "id": "kokoro", "name": "Kokoro TTS", "kind": "python",
+            "domains": {"audio": ["voice"]},
+            "detect": {"python": ["kokoro"]},
+            "license": "Apache-2.0 (model and code)", "commercial": "yes", "cost": "free",
+            "install": {"pip": "kokoro soundfile"},
+            "gpu": "optional, light (82M parameters)",
+            "why": "natural local text to speech with a permissive license"
+        },
+        {
+            "id": "xtts", "name": "Coqui XTTS-v2", "kind": "python",
+            "domains": {"audio": ["voice"]},
+            "detect": {"python": ["TTS"]},
+            "license": "Coqui Public Model License", "commercial": "no", "cost": "free",
+            "note": "the model is non-commercial only",
+            "install": {"pip": "coqui-tts"},
+            "gpu": "recommended (4 GB+)",
+            "why": "voice cloning from a few seconds of audio, multilingual"
+        },
+        {
+            "id": "whisper", "name": "Whisper (openai-whisper)", "kind": "python",
+            "domains": {"audio": ["transcribe"], "video": ["subtitles"]},
+            "detect": {"bin": ["whisper"], "python": ["whisper"]},
+            "license": "MIT", "commercial": "yes", "cost": "free",
+            "install": {"pip": "openai-whisper"},
+            "gpu": "optional; medium needs ~5 GB VRAM, small ~2 GB",
+            "why": "accurate speech to text in ~100 languages, writes SRT / VTT directly",
+            "recipes": [["French subtitles", "whisper audio.mp3 --model small --language fr --output_format srt --output_dir subs"]]
+        },
+        {
+            "id": "whisper-cpp", "name": "whisper.cpp", "kind": "cli",
+            "domains": {"audio": ["transcribe"], "video": ["subtitles"]},
+            "detect": {"bin": ["whisper-cli", "whisper-cpp"]},
+            "license": "MIT", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "whisper-cpp", "url": "https://github.com/ggml-org/whisper.cpp"},
+            "why": "Whisper in C++: fast on the CPU, no Python",
+            "recipes": [["subtitles (16 kHz WAV in)", "ffmpeg -i in.mp4 -ar 16000 -ac 1 a.wav && whisper-cli -m ggml-small.bin -f a.wav -l fr -osrt"]]
+        },
+        {
+            "id": "stable-audio-open", "name": "Stable Audio Open", "kind": "model",
+            "domains": {"audio": ["generate", "sfx"]},
+            "detect": {"python": ["stable_audio_tools"]},
+            "license": "Stability AI Community License", "commercial": "conditions", "cost": "free",
+            "note": "free commercial use under 1M USD of yearly revenue, a registration with Stability AI above",
+            "install": {"pip": "stable-audio-tools", "url": "https://huggingface.co/stabilityai/stable-audio-open-1.0"},
+            "gpu": "needed in practice (8 GB+ VRAM, slow below)",
+            "why": "text to sound effects, ambiences and short music loops (up to ~47 s)"
+        },
+        {
+            "id": "musicgen", "name": "MusicGen (AudioCraft)", "kind": "model",
+            "domains": {"audio": ["generate"]},
+            "detect": {"python": ["audiocraft"]},
+            "license": "code MIT, weights CC-BY-NC-4.0", "commercial": "no", "cost": "free",
+            "note": "the model weights are non-commercial",
+            "install": {"pip": "audiocraft"},
+            "gpu": "needed (small model: ~4 GB VRAM)",
+            "why": "text to music, melody conditioning"
+        },
+        {
+            "id": "freesound", "name": "Freesound", "kind": "assets",
+            "domains": {"audio": ["assets", "sfx"]},
+            "detect": {},
+            "license": "per sound: CC0, CC-BY or CC-BY-NC", "commercial": "conditions", "cost": "free",
+            "note": "filter on CC0 / CC-BY for commercial work, credit the CC-BY authors",
+            "install": {"url": "https://freesound.org/"},
+            "why": "the largest library of recorded sounds"
+        },
+        {
+            "id": "sonniss", "name": "Sonniss GDC bundles", "kind": "assets",
+            "domains": {"audio": ["assets", "sfx"]},
+            "detect": {},
+            "license": "royalty free, no attribution", "commercial": "yes", "cost": "free",
+            "note": "the raw sounds may not be resold or redistributed as a library",
+            "install": {"url": "https://sonniss.com/gameaudiogdc"},
+            "why": "tens of GB of professional sound effects, free every year"
+        },
+        {
+            "id": "elevenlabs", "name": "ElevenLabs (claude.ai connector)", "kind": "connector",
+            "domains": {"audio": ["voice", "sfx", "generate", "transcribe"], "image": ["generate"], "video": ["generate"]},
+            "detect": {"connector": ["ElevenLabs"]},
+            "license": "terms of ElevenLabs", "commercial": "conditions", "cost": "credits",
+            "note": "spends the account's credits; the free plan does not grant a commercial license",
+            "install": {"url": "https://elevenlabs.io/"},
+            "why": "high-quality voices, voice design, sound effects and music from text, already connected to Claude"
+        },
+        {
+            "id": "gimp", "name": "GIMP", "kind": "gui",
+            "domains": {"image": ["edit", "photo"]},
+            "detect": {"bin": ["gimp"], "flatpak": ["org.gimp.GIMP"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "gimp", "flatpak": "org.gimp.GIMP"},
+            "mcp": {"search": "gimp mcp server"},
+            "why": "raster retouching, layers, masks, Python plug-ins and batch mode"
+        },
+        {
+            "id": "krita", "name": "Krita", "kind": "gui",
+            "domains": {"image": ["paint", "edit"], "video": ["motion"]},
+            "detect": {"bin": ["krita"], "flatpak": ["org.kde.krita"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "krita", "flatpak": "org.kde.krita"},
+            "why": "digital painting, concept art, textures and frame-by-frame animation",
+            "recipes": [["export a .kra", "krita in.kra --export --export-filename out.png"]]
+        },
+        {
+            "id": "inkscape", "name": "Inkscape", "kind": "gui",
+            "domains": {"image": ["vector"]},
+            "detect": {"bin": ["inkscape"], "flatpak": ["org.inkscape.Inkscape"]},
+            "license": "GPL-2+", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "inkscape", "flatpak": "org.inkscape.Inkscape"},
+            "why": "vector drawing (SVG): logos, icons, diagrams, print; full command-line export",
+            "recipes": [["SVG to PNG", "inkscape in.svg --export-type=png --export-width=1024 --export-filename=out.png"]]
+        },
+        {
+            "id": "darktable", "name": "darktable", "kind": "gui",
+            "domains": {"image": ["photo"]},
+            "detect": {"bin": ["darktable", "darktable-cli"], "flatpak": ["org.darktable.Darktable"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "darktable", "flatpak": "org.darktable.Darktable"},
+            "why": "RAW development and photo management (non-destructive)",
+            "recipes": [["develop with its sidecar", "darktable-cli in.raw in.raw.xmp out.jpg"]]
+        },
+        {
+            "id": "rawtherapee", "name": "RawTherapee", "kind": "gui",
+            "domains": {"image": ["photo"]},
+            "detect": {"bin": ["rawtherapee", "rawtherapee-cli"], "flatpak": ["com.rawtherapee.RawTherapee"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "rawtherapee", "flatpak": "com.rawtherapee.RawTherapee"},
+            "why": "RAW development with fine demosaicing and noise reduction",
+            "recipes": [["develop to JPEG", "rawtherapee-cli -o out.jpg -c in.raw"]]
+        },
+        {
+            "id": "imagemagick", "name": "ImageMagick", "kind": "cli",
+            "domains": {"image": ["batch"]},
+            "detect": {"bin": ["magick", "convert"]}, "version": ["-version"],
+            "license": "ImageMagick License (Apache-2.0 style)", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "ImageMagick"},
+            "why": "batch operations on images: resize, convert, crop, sprite sheets, compositing",
+            "recipes": [
+                ["batch resize (never upscale)", "magick mogrify -path out -resize '1920x1920>' -quality 85 *.jpg"],
+                ["trim transparent borders", "magick in.png -trim +repage out.png"],
+                ["sprite sheet", "magick montage frames/*.png -tile 8x -geometry +0+0 -background none sheet.png"],
+                ["to WebP", "magick in.png -quality 90 out.webp"]
+            ]
+        },
+        {
+            "id": "vips", "name": "libvips", "kind": "cli",
+            "domains": {"image": ["batch"]},
+            "detect": {"bin": ["vips"]},
+            "license": "LGPL-2.1+", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "vips-tools"},
+            "why": "very fast on huge images, low memory",
+            "recipes": [["thumbnail", "vips thumbnail in.jpg out.jpg 1024"]]
+        },
+        {
+            "id": "oxipng", "name": "oxipng / pngquant / cwebp", "kind": "cli",
+            "domains": {"image": ["optimize"]},
+            "detect": {"bin": ["oxipng", "pngquant", "cwebp"]},
+            "license": "MIT / GPL-3 / BSD-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "oxipng pngquant libwebp-tools"},
+            "why": "lossless and lossy compression for the web",
+            "recipes": [
+                ["lossless PNG", "oxipng -o 4 --strip safe *.png"],
+                ["lossy PNG (much smaller)", "pngquant --quality=65-85 --ext .png --force *.png"],
+                ["WebP", "cwebp -q 80 in.png -o out.webp"]
+            ]
+        },
+        {
+            "id": "comfyui", "name": "ComfyUI", "kind": "service",
+            "domains": {"image": ["generate", "upscale"], "video": ["generate"], "3d": ["generate"]},
+            "detect": {"dirs": ["~/ComfyUI", "~/.local/share/ComfyUI", "~/apps/ComfyUI", "~/Applications/ComfyUI", "~/git/ComfyUI"]},
+            "license": "GPL-3 (the outputs follow the license of each model)", "commercial": "conditions", "cost": "free",
+            "note": "check each model: SDXL (Open RAIL++-M, commercial yes), FLUX.1 schnell (Apache-2.0, yes), FLUX.1 dev (non-commercial license), SD 3.5 (Stability Community License, under 1M USD), Wan 2.1 / 2.2 video (Apache-2.0, yes)",
+            "install": {"url": "https://github.com/comfyanonymous/ComfyUI"},
+            "mcp": {"search": "comfyui mcp server (queues workflows through the ComfyUI API)"},
+            "gpu": "needed: 4 GB VRAM = SD 1.5 / SDXL with offloading, 8 GB+ for FLUX / video",
+            "why": "node graph for local image / video / 3D generation, every open model, an HTTP API to script it",
+            "recipes": [["start the API (local only)", "python main.py --listen 127.0.0.1 --port 8188  # then POST the API-format workflow JSON to /prompt"]]
+        },
+        {
+            "id": "realesrgan", "name": "Real-ESRGAN (ncnn) / Upscayl", "kind": "cli",
+            "domains": {"image": ["upscale"], "video": ["compositing"]},
+            "detect": {"bin": ["realesrgan-ncnn-vulkan", "upscayl"], "flatpak": ["org.upscayl.Upscayl"]},
+            "license": "BSD-3 (Real-ESRGAN), AGPL-3 (Upscayl app)", "commercial": "yes", "cost": "free",
+            "note": "the default models are BSD; check the license of an added model",
+            "install": {"flatpak": "org.upscayl.Upscayl", "url": "https://github.com/xinntao/Real-ESRGAN"},
+            "gpu": "Vulkan (any recent GPU)",
+            "why": "x2 / x4 upscaling of photos, art and video frames",
+            "recipes": [["upscale x4", "realesrgan-ncnn-vulkan -i in.png -o out.png -s 4"]]
+        },
+        {
+            "id": "rembg", "name": "rembg", "kind": "python",
+            "domains": {"image": ["cutout"]},
+            "detect": {"bin": ["rembg"], "python": ["rembg"]},
+            "license": "MIT (u2net models Apache-2.0)", "commercial": "yes", "cost": "free",
+            "install": {"pip": "rembg[cli]"},
+            "why": "background removal in one command",
+            "recipes": [["remove the background", "rembg i in.png out.png"]]
+        },
+        {
+            "id": "vtracer", "name": "VTracer / Potrace", "kind": "cli",
+            "domains": {"image": ["vectorize"]},
+            "detect": {"bin": ["vtracer", "potrace"], "python": ["vtracer"]},
+            "license": "MIT (VTracer) / GPL-2 (Potrace)", "commercial": "yes", "cost": "free",
+            "install": {"pip": "vtracer", "dnf": "potrace"},
+            "why": "raster to SVG: VTracer for colors, Potrace for black and white",
+            "recipes": [
+                ["color image to SVG", "vtracer --input in.png --output out.svg"],
+                ["black and white to SVG", "magick in.png out.pbm && potrace out.pbm -s -o out.svg"]
+            ]
+        },
+        {
+            "id": "canva", "name": "Canva (claude.ai connector)", "kind": "connector",
+            "domains": {"image": ["edit", "generate", "cutout"], "video": ["edit"]},
+            "detect": {"connector": ["Canva"]},
+            "license": "terms of Canva", "commercial": "conditions", "cost": "freemium",
+            "note": "free content may be used commercially, Pro elements need a subscription",
+            "install": {"url": "https://www.canva.com/"},
+            "why": "layouts (posters, thumbnails, social posts, slides) from templates, already connected to Claude"
+        },
+        {
+            "id": "image-assets", "name": "Poly Haven, ambientCG, Kenney, Openverse", "kind": "assets",
+            "domains": {"image": ["assets"], "3d": ["assets"]},
+            "detect": {},
+            "license": "CC0 (Poly Haven, ambientCG, Kenney); per item (Openverse)", "commercial": "yes", "cost": "free",
+            "note": "Openverse mixes licenses: filter on CC0 / CC-BY",
+            "install": {"url": "https://polyhaven.com/ https://ambientcg.com/ https://kenney.nl/ https://openverse.org/"},
+            "why": "HDRIs, PBR textures, models, game asset packs and photos free for any use"
+        },
+        {
+            "id": "kdenlive", "name": "Kdenlive", "kind": "gui",
+            "domains": {"video": ["edit"]},
+            "detect": {"bin": ["kdenlive"], "flatpak": ["org.kde.kdenlive"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "kdenlive", "flatpak": "org.kde.kdenlive"},
+            "mcp": {"search": "kdenlive mcp server"},
+            "why": "full non-linear editor (proxies, effects, titles, keyframes); projects render headless with melt",
+            "recipes": [["render a project headless", "melt project.kdenlive -consumer avformat:out.mp4 vcodec=libx264 crf=20 acodec=aac"]]
+        },
+        {
+            "id": "shotcut", "name": "Shotcut", "kind": "gui",
+            "domains": {"video": ["edit"]},
+            "detect": {"bin": ["shotcut"], "flatpak": ["org.shotcut.Shotcut"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "shotcut", "flatpak": "org.shotcut.Shotcut"},
+            "why": "simpler editor with wide format support; MLT projects render with melt",
+            "recipes": [["render a project headless", "melt project.mlt -consumer avformat:out.mp4"]]
+        },
+        {
+            "id": "openshot", "name": "OpenShot", "kind": "gui",
+            "domains": {"video": ["edit"]},
+            "detect": {"bin": ["openshot-qt"], "flatpak": ["org.openshot.OpenShot"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"flatpak": "org.openshot.OpenShot"},
+            "why": "beginner-friendly editor, Python API (libopenshot)"
+        },
+        {
+            "id": "resolve", "name": "DaVinci Resolve (free version)", "kind": "gui",
+            "domains": {"video": ["edit", "compositing"], "vfx": ["compositing"]},
+            "detect": {"bin": ["resolve", "/opt/resolve/bin/resolve"]},
+            "license": "proprietary, free version", "commercial": "yes", "cost": "free",
+            "note": "the free Linux version decodes no H.264 / H.265 (convert to DNxHR / ProRes first) and needs a CUDA / OpenCL GPU",
+            "install": {"url": "https://www.blackmagicdesign.com/products/davinciresolve"},
+            "gpu": "needed",
+            "why": "professional editing, color grading, Fusion compositing and Fairlight audio"
+        },
+        {
+            "id": "mlt", "name": "MLT melt", "kind": "cli",
+            "domains": {"video": ["cli"]},
+            "detect": {"bin": ["melt"]},
+            "license": "LGPL-2.1+ / GPL", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "mlt"},
+            "why": "the engine of Kdenlive / Shotcut: renders their projects and simple timelines from the command line"
+        },
+        {
+            "id": "auto-editor", "name": "auto-editor", "kind": "python",
+            "domains": {"video": ["cli"]},
+            "detect": {"bin": ["auto-editor"], "python": ["auto_editor"]},
+            "license": "Unlicense", "commercial": "yes", "cost": "free",
+            "install": {"pip": "auto-editor"},
+            "why": "cuts the silences / dead parts of a recording automatically, exports to Kdenlive / Resolve timelines too",
+            "recipes": [["cut the silences", "auto-editor in.mp4 --margin 0.2sec -o out.mp4"]]
+        },
+        {
+            "id": "natron", "name": "Natron", "kind": "gui",
+            "domains": {"video": ["compositing"], "vfx": ["compositing"]},
+            "detect": {"bin": ["Natron", "natron"], "flatpak": ["fr.natron.Natron"]},
+            "license": "GPL-2", "commercial": "yes", "cost": "free",
+            "note": "little maintained: prefer the Blender compositor or Resolve Fusion when they are there",
+            "install": {"flatpak": "fr.natron.Natron"},
+            "why": "node-based compositing (Nuke-like): keying, roto, tracking"
+        },
+        {
+            "id": "glaxnimate", "name": "Glaxnimate", "kind": "gui",
+            "domains": {"video": ["motion"]},
+            "detect": {"bin": ["glaxnimate"], "flatpak": ["org.kde.glaxnimate"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "glaxnimate", "flatpak": "org.kde.glaxnimate"},
+            "why": "vector animation, Lottie and animated SVG, titles for Kdenlive"
+        },
+        {
+            "id": "synfig", "name": "Synfig Studio", "kind": "gui",
+            "domains": {"video": ["motion"]},
+            "detect": {"bin": ["synfigstudio", "synfig"], "flatpak": ["org.synfig.SynfigStudio"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "synfigstudio", "flatpak": "org.synfig.SynfigStudio"},
+            "why": "2D cut-out and vector animation with bones"
+        },
+        {
+            "id": "manim", "name": "Manim", "kind": "python",
+            "domains": {"video": ["motion"]},
+            "detect": {"bin": ["manim"], "python": ["manim"]},
+            "license": "MIT", "commercial": "yes", "cost": "free",
+            "install": {"pip": "manim"},
+            "why": "animations written in Python: maths, diagrams, explanatory videos",
+            "recipes": [["render a scene in HD", "manim -qh scene.py MyScene"]]
+        },
+        {
+            "id": "obs", "name": "OBS Studio", "kind": "gui",
+            "domains": {"video": ["record"]},
+            "detect": {"bin": ["obs"], "flatpak": ["com.obsproject.Studio"]},
+            "license": "GPL-2+", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "obs-studio", "flatpak": "com.obsproject.Studio"},
+            "mcp": {"search": "obs mcp server (obs-websocket)"},
+            "why": "screen and camera recording, streaming, scenes; remote control through obs-websocket"
+        },
+        {
+            "id": "aegisub", "name": "Aegisub", "kind": "gui",
+            "domains": {"video": ["subtitles"]},
+            "detect": {"bin": ["aegisub"], "flatpak": ["org.aegisub.Aegisub"]},
+            "license": "BSD-3", "commercial": "yes", "cost": "free",
+            "install": {"flatpak": "org.aegisub.Aegisub"},
+            "why": "precise subtitle timing and styled ASS subtitles"
+        },
+        {
+            "id": "handbrake", "name": "HandBrake", "kind": "gui",
+            "domains": {"video": ["transcode"]},
+            "detect": {"bin": ["HandBrakeCLI", "ghb"], "flatpak": ["fr.handbrake.ghb"]},
+            "license": "GPL-2", "commercial": "yes", "cost": "free",
+            "install": {"flatpak": "fr.handbrake.ghb"},
+            "why": "ready presets for devices and the web",
+            "recipes": [["1080p preset", "HandBrakeCLI -i in.mkv -o out.mp4 --preset 'Fast 1080p30'"]]
+        },
+        {
+            "id": "yt-dlp", "name": "yt-dlp", "kind": "cli",
+            "domains": {"video": ["download"]},
+            "detect": {"bin": ["yt-dlp"]}, "version": ["--version"],
+            "license": "Unlicense", "commercial": "conditions", "cost": "free",
+            "note": "the tool is free; the downloaded content belongs to its owners (use only what you have the rights to)",
+            "install": {"dnf": "yt-dlp"},
+            "why": "fetch a video or its audio from a URL (your own uploads, CC content, references)",
+            "recipes": [["audio only", "yt-dlp -x --audio-format wav URL"]]
+        },
+        {
+            "id": "blender", "name": "Blender", "kind": "gui",
+            "domains": {"3d": ["model", "texture"], "vfx": ["sim", "render", "compositing"], "video": ["edit", "compositing", "motion"]},
+            "detect": {"bin": ["blender"], "flatpak": ["org.blender.Blender"]}, "version": ["--version"],
+            "license": "GPL-2+ (your files and renders are yours)", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "blender", "flatpak": "org.blender.Blender"},
+            "mcp": {"command": "uvx blender-mcp", "note": "github.com/ahujasid/blender-mcp (MIT): also install its addon.py in Blender and click Connect in its N panel", "search": "blender mcp server"},
+            "gpu": "Cycles: CUDA / OptiX (NVIDIA), HIP (AMD); EEVEE: any OpenGL / Vulkan GPU",
+            "why": "the complete 3D suite: modeling, sculpting, rigging, animation, Geometry Nodes, fluids / smoke / cloth simulation, Cycles and EEVEE rendering, compositor, video editor; fully scriptable in Python headless",
+            "recipes": [
+                ["render frame 1", "blender -b scene.blend -o //render/frame_#### -F PNG -f 1"],
+                ["render the animation on the NVIDIA GPU", "blender -b scene.blend -E CYCLES -a -- --cycles-device OPTIX"],
+                ["run a Python script headless", "blender -b -P script.py -- arg1 arg2"],
+                ["convert a model (script)", "blender -b -P convert.py -- in.fbx out.glb  # convert.py: bpy.ops.import_scene.fbx(filepath=...); bpy.ops.export_scene.gltf(filepath=...)"]
+            ]
+        },
+        {
+            "id": "freecad", "name": "FreeCAD", "kind": "gui",
+            "domains": {"3d": ["cad"]},
+            "detect": {"bin": ["freecad", "FreeCAD", "freecadcmd"], "flatpak": ["org.freecad.FreeCAD"]},
+            "license": "LGPL-2+", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "freecad", "flatpak": "org.freecad.FreeCAD"},
+            "why": "parametric CAD (sketches, constraints, assemblies, FEM), Python scripting",
+            "recipes": [["run a script without GUI", "freecadcmd script.py"]]
+        },
+        {
+            "id": "openscad", "name": "OpenSCAD", "kind": "cli",
+            "domains": {"3d": ["cad"]},
+            "detect": {"bin": ["openscad"], "flatpak": ["org.openscad.OpenSCAD"]},
+            "license": "GPL-2", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "openscad", "flatpak": "org.openscad.OpenSCAD"},
+            "why": "CAD as code: parametric parts for 3D printing, the best fit for Claude to write",
+            "recipes": [
+                ["STL export with a parameter", "openscad -o part.stl -D 'size=20' part.scad"],
+                ["preview image", "openscad -o preview.png --imgsize=800,600 part.scad"]
+            ]
+        },
+        {
+            "id": "meshlab", "name": "MeshLab / PyMeshLab", "kind": "gui",
+            "domains": {"3d": ["mesh"]},
+            "detect": {"bin": ["meshlab"], "flatpak": ["net.meshlab.MeshLab"], "python": ["pymeshlab"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "meshlab", "flatpak": "net.meshlab.MeshLab", "pip": "pymeshlab"},
+            "why": "clean, repair, decimate and convert scans and meshes; PyMeshLab for scripts",
+            "recipes": [["decimate to 20k faces", "python3 -c \"import pymeshlab as p; m=p.MeshSet(); m.load_new_mesh('in.obj'); m.meshing_decimation_quadric_edge_collapse(targetfacenum=20000); m.save_current_mesh('out.obj')\""]]
+        },
+        {
+            "id": "material-maker", "name": "Material Maker", "kind": "gui",
+            "domains": {"3d": ["texture"]},
+            "detect": {"bin": ["material_maker"], "flatpak": ["io.github.RodZill4.Material-Maker"]},
+            "license": "MIT", "commercial": "yes", "cost": "free",
+            "install": {"flatpak": "io.github.RodZill4.Material-Maker"},
+            "why": "procedural PBR materials by nodes (Substance Designer-like), exports to Blender / Godot"
+        },
+        {
+            "id": "blockbench", "name": "Blockbench", "kind": "gui",
+            "domains": {"3d": ["lowpoly"]},
+            "detect": {"bin": ["blockbench"], "flatpak": ["net.blockbench.Blockbench"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"flatpak": "net.blockbench.Blockbench"},
+            "why": "low-poly / pixel-art models with textures and animations for games"
+        },
+        {
+            "id": "goxel", "name": "Goxel", "kind": "gui",
+            "domains": {"3d": ["lowpoly"]},
+            "detect": {"bin": ["goxel"], "flatpak": ["io.github.guillaumechereau.Goxel"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"flatpak": "io.github.guillaumechereau.Goxel"},
+            "why": "voxel art, exports OBJ / PLY / glTF"
+        },
+        {
+            "id": "triposr", "name": "TripoSR", "kind": "model",
+            "domains": {"3d": ["generate"]},
+            "detect": {"dirs": ["~/TripoSR"]},
+            "license": "MIT", "commercial": "yes", "cost": "free",
+            "install": {"url": "https://github.com/VAST-AI-Research/TripoSR"},
+            "gpu": "about 6 GB VRAM (CPU possible, slow)",
+            "why": "one image to a textured mesh in seconds (rough, to clean up in Blender)"
+        },
+        {
+            "id": "godot", "name": "Godot", "kind": "gui",
+            "domains": {"3d": ["realtime"], "vfx": ["realtime"]},
+            "detect": {"bin": ["godot", "godot4"], "flatpak": ["org.godotengine.Godot"]},
+            "license": "MIT", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "godot", "flatpak": "org.godotengine.Godot"},
+            "mcp": {"search": "godot mcp server"},
+            "why": "real-time 2D / 3D engine: interactive scenes, GPU particles, shaders, exports headless",
+            "recipes": [["export headless", "godot --headless --export-release 'Linux' build/game.x86_64"]]
+        },
+        {
+            "id": "houdini-apprentice", "name": "Houdini Apprentice", "kind": "gui",
+            "domains": {"vfx": ["sim"]},
+            "detect": {"bin": ["houdini", "hython"]},
+            "license": "proprietary, free Apprentice version", "commercial": "no", "cost": "free",
+            "note": "non-commercial, watermarked renders, limited resolution",
+            "install": {"url": "https://www.sidefx.com/products/houdini-apprentice/"},
+            "why": "the reference for procedural VFX (pyro, FLIP fluids, destruction) to learn and prototype"
+        },
+        {
+            "id": "luxcore", "name": "LuxCoreRender", "kind": "cli",
+            "domains": {"vfx": ["render"]},
+            "detect": {"python": ["pyluxcore"]},
+            "license": "Apache-2.0", "commercial": "yes", "cost": "free",
+            "install": {"pip": "pyluxcore", "url": "https://luxcorerender.org/ (BlendLuxCore addon for Blender)"},
+            "why": "physically based renderer, strong on caustics and glass"
+        },
+        {
+            "id": "povray", "name": "POV-Ray", "kind": "cli",
+            "domains": {"vfx": ["render"]},
+            "detect": {"bin": ["povray"]},
+            "license": "AGPL-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "povray"},
+            "why": "ray tracing from a scene description language, easy for Claude to write",
+            "recipes": [["render", "povray +Iscene.pov +Oscene.png +W1920 +H1080 +A"]]
+        },
+        {
+            "id": "openfoam", "name": "OpenFOAM", "kind": "cli",
+            "domains": {"vfx": ["cfd"]},
+            "detect": {"bin": ["simpleFoam", "openfoam"]},
+            "license": "GPL-3", "commercial": "yes", "cost": "free",
+            "install": {"url": "https://www.openfoam.com/ or https://openfoam.org/ (packages and containers)"},
+            "why": "reference open source CFD: airflow, heat, multiphase; scripts and case folders",
+            "recipes": [["run a case", "cd case && blockMesh && simpleFoam  # then open it in ParaView"]]
+        },
+        {
+            "id": "paraview", "name": "ParaView", "kind": "gui",
+            "domains": {"vfx": ["cfd"]},
+            "detect": {"bin": ["paraview", "pvpython"], "flatpak": ["org.paraview.ParaView"]},
+            "license": "BSD-3", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "paraview", "flatpak": "org.paraview.ParaView"},
+            "why": "visualization of simulation results, scriptable with pvpython",
+            "recipes": [["script without GUI", "pvpython render.py"]]
+        },
+        {
+            "id": "gmsh", "name": "Gmsh", "kind": "cli",
+            "domains": {"vfx": ["cfd"]},
+            "detect": {"bin": ["gmsh"], "python": ["gmsh"]},
+            "license": "GPL-2+", "commercial": "yes", "cost": "free",
+            "install": {"dnf": "gmsh", "pip": "gmsh"},
+            "why": "meshing for FEM / CFD, from a .geo script or Python",
+            "recipes": [["3D mesh", "gmsh part.geo -3 -o part.msh"]]
+        },
+        {
+            "id": "taichi", "name": "Taichi", "kind": "python",
+            "domains": {"vfx": ["physics", "sim"]},
+            "detect": {"python": ["taichi"]},
+            "license": "Apache-2.0", "commercial": "yes", "cost": "free",
+            "install": {"pip": "taichi"},
+            "gpu": "optional (CUDA / Vulkan)",
+            "why": "fast particle / MPM / fluid simulations written in Python, GPU accelerated"
+        },
+        {
+            "id": "mujoco", "name": "MuJoCo / PyBullet", "kind": "python",
+            "domains": {"vfx": ["physics"]},
+            "detect": {"python": ["mujoco", "pybullet"]},
+            "license": "Apache-2.0 / zlib", "commercial": "yes", "cost": "free",
+            "install": {"pip": "mujoco pybullet"},
+            "why": "rigid-body and robotics physics from code, with a viewer"
+        }
+    ]
+}

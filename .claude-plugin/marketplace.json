@@ -106,6 +106,15 @@
       ]
     },
     {
+      "name": "studio-skills",
+      "description": "Creative studio: scans the audio, image, video, 3D and simulation / VFX / rendering tools of the computer (programs, MCP servers, connectors, GPU), finds free tools for what is missing and installs the accepted ones, then generates a /studio router and one skill per domain saying which tool to use, where, how and why (skills: setup-studio)",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/studio/"
+      ]
+    },
+    {
       "name": "ux-skills",
       "description": "Interface of a project or a website: several languages (multilingual-project, multilingual-website) and visual modes light / dark / system / high contrast (color-modes-project, color-modes-website) (skills: multilingual-project, multilingual-website, color-modes-project, color-modes-website)",
       "source": "./",

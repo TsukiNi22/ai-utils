@@ -30,3 +30,4 @@ multilingual-project
 multilingual-website
 color-modes-project
 color-modes-website
+setup-studio
