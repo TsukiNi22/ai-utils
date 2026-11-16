@@ -29,7 +29,7 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-") or "deck"
 
 def words(slide: dict) -> int:
-    text = json.dumps({k: v for k, v in slide.items() if k not in ("notes", "svg", "kind", "chapter")}, ensure_ascii=False)
+    text = json.dumps({k: v for k, v in slide.items() if k not in ("notes", "svg", "kind", "chapter", "bg")}, ensure_ascii=False)
     return len(re.findall(r"[\w'-]+", re.sub(r'"[a-z_]+":', " ", text)))
 
 def lint(deck: dict, base: Path) -> int:
