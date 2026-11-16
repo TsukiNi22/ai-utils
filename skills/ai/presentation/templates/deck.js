@@ -63,7 +63,7 @@
     var head = document.createElement('div'); head.className = 'maphead';
     head.innerHTML = '<strong></strong><span class="maphint"></span><button type="button" class="mapclose" aria-label="Close"></button>';
     head.querySelector('strong').textContent = (fr ? 'Plan' : 'Outline') + ' \u00b7 ' + slides.length + (fr ? ' diapos' : ' slides');
-    head.querySelector('.maphint').textContent = fr ? 'Cliquer pour aller \u00e0 une diapo \u00b7 \u00c9chap pour fermer' : 'Click to jump to a slide \u00b7 Esc to close';
+    head.querySelector('.maphint').textContent = fr ? 'Cliquer pour aller \u00e0 une diapo \u00b7 \u00c9chap pour fermer \u00b7 H : masquer la barre' : 'Click to jump to a slide \u00b7 Esc to close \u00b7 H: hide the bar';
     head.querySelector('.mapclose').textContent = '\u00d7';
     head.querySelector('.mapclose').addEventListener('click', function () { toggleMap(false); });
     map.appendChild(head);
@@ -139,6 +139,7 @@
         else if (c === 'Escape') toggleMap(false);
         else if (c === 'f' || c === 'F') fullscreen();
         else if (c === 'n' || c === 'N') root.classList.toggle('notes');
+        else if (c === 'h' || c === 'H') { root.classList.toggle('nohud'); if (!root.classList.contains('nohud')) { widths = []; layoutChapters(); } }
         else used = false;
         if (used) e.preventDefault();
     }
@@ -209,7 +210,8 @@
         var fwd = presses; while (cur > 0 || k > 0) { ev('ArrowLeft'); presses++; if (presses > 2000) break; }
         ev('End'); var endOk = cur === N - 1; ev('Home'); var homeOk = cur === 0 && k === 0; ev(' '); var spaceOk = (cur > 0 || k > 0);
         ev('o'); var mapOk = !map.hidden; ev('Escape'); mapOk = mapOk && map.hidden; go(0, 0);
-        if (fwd !== states - 1 || presses !== 2 * (states - 1) || !endOk || !homeOk || !spaceOk || !mapOk) rep.push('KEYS fwd=' + fwd + ' total=' + presses + ' expected=' + (states - 1) + ' end=' + endOk + ' home=' + homeOk + ' space=' + spaceOk + ' map=' + mapOk);
+        ev('h'); var hudOk = !$('hud').offsetWidth; ev('h'); hudOk = hudOk && $('hud').offsetWidth > 0;
+        if (fwd !== states - 1 || presses !== 2 * (states - 1) || !endOk || !homeOk || !spaceOk || !mapOk || !hudOk) rep.push('KEYS fwd=' + fwd + ' total=' + presses + ' expected=' + (states - 1) + ' end=' + endOk + ' home=' + homeOk + ' space=' + spaceOk + ' map=' + mapOk + ' hud=' + hudOk);
         var out = document.createElement('pre'); out.id = 'selftest';
         out.setAttribute('style', 'position:fixed;z-index:99999;left:0;top:0;right:0;margin:0;padding:12px;background:#fff;color:#000;font:16px/1.3 monospace;white-space:pre-wrap;max-height:100vh;overflow:hidden');
         out.textContent = 'SELFTEST ' + (rep.length || errors.length ? 'FAIL' : 'OK') + ': ' + N + ' slides, ' + states + ' states, ' + errors.length + ' js errors, ' + rep.length + ' layout issues, keys ' + (fwd === states - 1 ? 'OK' : 'BAD') + '\n' + errors.concat(rep.slice(0, 25)).join('\n');

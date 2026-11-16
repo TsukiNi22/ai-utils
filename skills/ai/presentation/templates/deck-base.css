@@ -12,6 +12,7 @@ html.notes .slide[data-state="active"] .notes { display: block; position: absolu
 #hud { position: absolute; left: 0; right: 0; bottom: 0; z-index: 30; }
 .zone { position: absolute; top: 0; bottom: 64px; width: 5%; z-index: 20; cursor: pointer; }
 #zl { left: 0; } #zr { right: 0; }
+html.nohud #hud { display: none; } html.nohud .zone { bottom: 0; } /* H hides / shows the bottom bar */
 #map[hidden] { display: none; }
 #map { position: fixed; inset: 0; z-index: 100; overflow: hidden; } /* outside the scaled stage: the whole window, whatever its shape */
 .mapch button { display: block; text-align: left; font: inherit; cursor: pointer; }
