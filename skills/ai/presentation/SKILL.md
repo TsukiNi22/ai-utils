@@ -65,13 +65,19 @@ patterns, drawn shapes (inline SVG in `bgimg` as `url("data:image/svg+xml,...")`
 Two files in the deck folder, then `--theme-file theme.json`:
 - `theme.json`: every key of `themes.json` (`label`, `dark`, `bg`, `paper`, `ink`, `ink2`, `tx`, `dim`, `code`, `codetx`,
   `warn`, `ok`, `font`, `head_font`, `mono`, `head_transform`, `head_spacing`, `head_weight`, `radius`, `bgimg`, `frame`,
-  `inner_frame`, `cartouche`) + `"css_file": "theme.css"` (or `"css": "..."`).
+  `inner_frame`, `cartouche`) + `"css_file": "theme.css"` (or `"css": "..."`). **Extra colour keys** are allowed and
+  become variables everywhere: `"acc1": "#0d7a55"`, `"acc2_line": "#c4561a"` give `--acc1` / `--acc2-line` in the CSS
+  and are resolved in the inline SVG of the PDF (two worlds in one deck: one accent per part, set per slide with `#sN`).
 - `theme.css`: free CSS loaded after the layout (HTML and PDF): override anything (`.k-title`, `.k-section`, `.col`,
   `.flow > li`, `.k-quote`, `#hud`, `@font-face`, even transitions). Class names are in `templates/slides.css` (the stage, its scaling and the outline shell: `templates/deck-base.css`).
 `templates/custom-example/` is a complete bold example ("Poster pop": cobalt, coral and yellow, hard shadows) to take
 the level of boldness from, not to copy. Rules that stay: text readable (contrast on every background, checked on the
 sheets), fonts that exist on the machine (`fc-list`), nothing leaving the slide (the selftest says it), no
-`::marker { content }` (it crashes the PDF engine: use `list-style-type`). The PPTX carries the colours, fonts and
+`::marker { content }` (it crashes the PDF engine: use `list-style-type`). WeasyPrint (the PDF) also: drops a whole rule
+that uses `:has()`, makes an absolute `::before` of a grid container a grid cell (use flex there), and the layout rules
+`.slide ul` / `.slide ol` / `.slide li` beat a bare class (`.road`): write `.slide ol.road`. Every direct child of a slide
+is `position: relative` (above the decor): a block placed with `position: absolute` against the slide needs its figure
+set back to `position: static` (`#s9 figure { position: static; }`). The PPTX carries the colours, fonts and
 background colour of the theme only (not the CSS), the `--canva` build ignores the CSS: say it. Offer to keep the
 result with the user's own themes (`~/.claude/presentation/themes/`, `theme.css` next to it).
 
@@ -86,8 +92,11 @@ next decks. It is a first guess: build the example (`templates/example.json`) wi
 
 ## 4. Write `deck.json`
 `SKILL_DIR/templates/example.json` shows every kind. Keys: `title`, `subtitle`, `lang`, `author`, `date`, `duration`,
-`theme`, `slides`. A slide: `kind`, `title`, `chapter` (the bar of the web page), `lead` (one line under the title),
-`notes` (what is said aloud).
+`theme`, `slides` (+ `bg_angle`, `bg_fade` for the per slide backgrounds). A slide: `kind`, `title`, `chapter` (the bar
+of the web page), `lead` (one line under the title), `notes` (what is said aloud), `bg` (optional: one colour, or two for
+a gradient: the slide's own background; the web page **fades** the colours from one slide to the next instead of cutting,
+the PDF paints each slide's gradient, the PPTX its first colour, `--canva` a solid colour). The slides are `#s1`, `#s2`...
+in the HTML / PDF: a `theme.css` can style one slide or a run of slides (`#s2, #s3 { --ink: var(--acc1); }`).
 
 | kind | Fields | Use |
 |---|---|---|
@@ -99,10 +108,18 @@ next decks. It is a first guess: build the example (`templates/example.json`) wi
 | `code` | `code`, `lang`, `caption` | a command or a few lines (never a whole file) |
 | `steps` | `steps`: `{head, text}` | a path in 3-4 stages, revealed one by one |
 | `image` | `src` (relative path), `caption`, `alt` | a screenshot, a photo, a QR code |
-| `svg` | `svg`, `caption` | a diagram drawn inline (`currentColor` = the text colour, `<g style="color:var(--ink)">` for the accent, no fixed colour; the PDF resolves them from the theme); HTML / PDF only |
+| `svg` | `svg`, `caption` | a diagram drawn inline (`currentColor` = the text colour, `<g style="color:var(--ink)">` for the accent, no fixed colour; the PDF resolves them from the theme); HTML / PDF only. The field is raw markup: an HTML block (a mock-up, a QR card, a custom layout) works too, and its `data-s="1"`, `"2"`... are revealed one by one like the points |
 | `quote` | `text`, `by` | the sentence to remember |
 | `end` | `title`, `subtitle`, `links`, `src` | last slide: questions, links, QR code |
 Text accepts `` `code` `` and `**bold**`.
+
+Colours in inline SVG (the bugs met, the builder fixes the first, `check_deck.py` warns on the others):
+- A theme colour goes in `style`, never in a presentation attribute: `style="fill:var(--paper)"`, not
+  `fill="var(--paper)"` (a browser paints it black). `build_deck.py` moves `fill` / `stroke` / `stop-color` / `color`
+  attributes holding a `var()` into `style`, and merges two `style` attributes on one tag (the second would be dropped).
+- No `opacity` on a `<text>`: WeasyPrint cuts or shifts it in the PDF. Use a dim fill (`style="fill:var(--dim)"`).
+- A point on a curve (a station on a line) is computed from the curve (`B(t)` of the cubic, or a segment end), never
+  placed by eye.
 
 How a good deck is written (taken from the user's earlier decks and their remarks):
 - **Less text, more visual**: a diagram, a table, steps, a command instead of a paragraph; what is said aloud goes in

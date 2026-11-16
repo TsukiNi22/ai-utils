@@ -17,10 +17,16 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from pathlib import Path
 
 PER_MINUTE = (0.5, 1.0)  # content slides per minute: below = slow, above = rushed
 MAX_POINTS, MAX_WORDS = 6, 60
+
+def slug(text: str) -> str:
+    """The file name build_deck.py gives the outputs (same rule: accents dropped, then non letters as '-')."""
+    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-") or "deck"
 
 def words(slide: dict) -> int:
     text = json.dumps({k: v for k, v in slide.items() if k not in ("notes", "svg", "kind", "chapter")}, ensure_ascii=False)
@@ -45,6 +51,11 @@ def lint(deck: dict, base: Path) -> int:
             print(f"WARN {where}: {words(slide)} words, move the detail to the notes")
         if slide["kind"] not in ("title", "section", "end", "quote") and not slide.get("notes"):
             print(f"WARN {where}: no notes (what is said aloud)")
+        svg = slide.get("svg", "")
+        if re.search(r"<text\b[^>]*\sopacity=", svg):
+            print(f"WARN {where}: opacity on an SVG <text>: the PDF engine cuts or shifts the text, give it a dim fill instead")
+        if re.search(r"<[a-zA-Z][^<>]*\sstyle=\"[^\"]*\"[^<>]*\sstyle=", svg):
+            print(f"WARN {where}: two style attributes on one SVG tag (build_deck merges them, merge them in deck.json)")
         if slide["kind"] in ("image", "end") and slide.get("src") and not (base / slide["src"]).is_file():
             print(f"ERROR {where}: image {slide['src']} not found")
             errors += 1
@@ -200,8 +211,10 @@ def main() -> None:
     sheets.mkdir(parents=True, exist_ok=True)
     errors = lint(deck, source.parent)
     allowed = json.loads((Path(__file__).resolve().parent.parent / "templates" / "canva.json").read_text(encoding="utf-8"))["fonts"]
-    stem = re.sub(r"[^a-z0-9]+", "-", re.sub(r"\*\*|`", "", deck.get("title", "deck")).lower()).strip("-") or "deck"
+    stem = slug(re.sub(r"\*\*|`", "", deck.get("title", "deck")))
     pdf, pptx, page = folder / f"{stem}.pdf", folder / f"{stem}.pptx", folder / f"{stem}.html"
+    if not any(f.exists() for f in (pdf, pptx, page)):
+        print(f"WARN no {stem}.pdf / .pptx / .html in {folder}: nothing built there to check (build_deck.py first, same -o)")
     if pdf.exists():
         pages = int(re.search(r"Pages:\s+(\d+)", subprocess.run(["pdfinfo", str(pdf)], capture_output=True, text=True, check=True).stdout).group(1))
         print(f"pdf: {pages} pages" + ("" if pages == len(deck["slides"]) else f" ERROR expected {len(deck['slides'])}"))

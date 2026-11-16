@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import zipfile
 from collections import Counter
 from pathlib import Path
@@ -122,7 +123,8 @@ def main() -> None:
         colors, fonts = from_web(path)
     else:
         sys.exit("extract_style: give a .pptx, .pdf, .png, .jpg, .html or .css")
-    name = args.name or re.sub(r"[^a-z0-9]+", "-", path.stem.lower()).strip("-")
+    ascii_stem = unicodedata.normalize("NFKD", path.stem).encode("ascii", "ignore").decode("ascii")
+    name = args.name or re.sub(r"[^a-z0-9]+", "-", ascii_stem.lower()).strip("-")
     theme = theme_from(colors, fonts, path.name, name)
     print(json.dumps({name: theme}, indent=4, ensure_ascii=False))
     if args.save:

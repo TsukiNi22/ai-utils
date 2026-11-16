@@ -5,9 +5,10 @@
 
 deck.json (see ../templates/example.json):
     {"title", "subtitle", "lang", "author", "date", "duration": minutes, "theme": "blueprint", "slides": [slide, ...]}
-slide = {"kind", "title", "chapter", "notes", ...}; kinds: title, section, bullets, columns, table, code, image, svg,
+slide = {"kind", "title", "chapter", "notes", "bg", ...}; kinds: title, section, bullets, columns, table, code, image, svg,
 steps, quote, end. Text accepts `code` and **bold**. The HTML page shows the points one by one (build steps), the PDF
-and the PPTX show every step at once. Themes: ../templates/themes.json, ~/.claude/presentation/themes/*.json, --theme-file.
+and the PPTX show every step at once. "bg" (one colour or two for a gradient) gives a slide its own background: the
+web page fades the colours from one slide to the next. Themes: ../templates/themes.json, ~/.claude/presentation/themes/*.json, --theme-file.
 """
 import argparse
 import base64
@@ -16,6 +17,7 @@ import json
 import mimetypes
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -25,6 +27,11 @@ KINDS = ("title", "section", "bullets", "columns", "table", "code", "image", "sv
 NEEDS = {"bullets": "points", "columns": "columns", "table": "rows", "code": "code", "image": "src", "svg": "svg", "steps": "steps",
          "quote": "text"} # what a slide of this kind cannot be built without
 LISTS = ("points", "columns", "rows", "steps")
+THEME_VARS = ("bg", "paper", "ink", "ink2", "tx", "dim", "code", "codetx", "warn", "ok", "font", "head_font", "mono",
+              "head_transform", "head_spacing", "head_weight", "radius", "bgimg", "frame", "inner_frame") # always written
+COLOUR = re.compile(r"^(#[0-9a-fA-F]{3,8}|(rgb|rgba|hsl|hsla)\(.*\))$") # an extra theme key holding a colour
+SVG_PAINT = re.compile(r'\s(fill|stroke|stop-color|flood-color|color)="(var\(--[a-z0-9-]+\))"') # var() in an attribute
+BG_ANGLE, BG_FADE = "115deg", 1.4 # per slide gradients: direction, seconds of the colour fade on the web page
 
 # ======================================================================= model
 def load_themes() -> dict:
@@ -103,6 +110,26 @@ def inline(text: str) -> str:
     out = re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
     return re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", out)
 
+def slug(text: str) -> str:
+    """File name of the outputs: accents dropped before the non letters, never an empty name."""
+    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-") or "deck"
+
+def svg_paint(markup: str) -> str:
+    """A browser ignores var() in an SVG presentation attribute (fill="var(--ink)" is painted black): move it into the
+    style attribute of the same tag, merged with a style already there (two style attributes: the second is dropped)."""
+    def fix(match: re.Match) -> str:
+        tag = match.group(0)
+        styles = [s.strip().rstrip(";") for s in re.findall(r'\sstyle="([^"]*)"', tag)]
+        paints = [f"{name}:{value}" for name, value in SVG_PAINT.findall(tag)]
+        if not paints and len(styles) < 2:
+            return tag
+        tag = SVG_PAINT.sub("", re.sub(r'\sstyle="[^"]*"', "", tag))
+        merged = "; ".join(s for s in styles + paints if s)
+        end = "/>" if tag.endswith("/>") else ">"
+        return tag[:-len(end)].rstrip() + f' style="{merged}"' + end
+    return re.sub(r"<svg\b.*?</svg>", lambda block: re.sub(r"<[a-zA-Z][^<>]*>", fix, block.group(0)), markup, flags=re.S)
+
 def plain(text: str) -> str:
     return re.sub(r"\*\*([^*]+)\*\*|`([^`]+)`", lambda m: m.group(1) or m.group(2), str(text))
 
@@ -156,7 +183,7 @@ def slide_inner(slide: dict, number: int, base: Path) -> str:
         return f'{head}{lead}<figure><img src="{data_uri(slide["src"], base)}" alt="{alt}">{caption}</figure>'
     if kind == "svg":
         caption = f"<figcaption>{inline(slide['caption'])}</figcaption>" if slide.get("caption") else ""
-        return f'{head}{lead}<figure>{slide.get("svg", "")}{caption}</figure>'
+        return f'{head}{lead}<figure>{svg_paint(slide.get("svg", ""))}{caption}</figure>'
     if kind == "steps":
         steps = slide.get("steps", [])
         items = "".join(f'<li data-s="{i}"><h3>{inline(s.get("head", ""))}</h3><p>{inline(s.get("text", ""))}</p></li>' for i, s in enumerate(steps, 1))
@@ -196,10 +223,50 @@ def custom_css(theme: dict, base: Path) -> str:
     return "\n/* theme css */\n" + text if text else ""
 
 def theme_css(theme: dict) -> str:
-    keys = ("bg", "paper", "ink", "ink2", "tx", "dim", "code", "codetx", "warn", "ok", "font", "head_font", "mono",
-            "head_transform", "head_spacing", "head_weight", "radius", "bgimg", "frame", "inner_frame")
-    rows = "; ".join(f"--{k.replace('_', '-')}: {theme[k]}" for k in keys)
+    """The theme as CSS variables: the fixed keys, then every extra key holding a colour (a custom theme.json may add
+    "acc1", "acc2_line"...: --acc1 and --acc2-line exist in the CSS and in the inline SVG of the PDF)."""
+    extra = [k for k, v in theme.items() if k not in THEME_VARS and not k.startswith("_") and isinstance(v, str) and COLOUR.match(v.strip())]
+    rows = "; ".join(f"--{k.replace('_', '-')}: {theme[k]}" for k in (*THEME_VARS, *extra))
     return f":root {{ {rows}; }}"
+
+def slide_bg(slide: dict, theme: dict) -> tuple[str, str] | None:
+    """The two colours of a slide's own background ("bg": "#hex" or ["#hex", "#hex"]), None without one."""
+    value = slide.get("bg")
+    if not value:
+        return None
+    colours = [value] if isinstance(value, str) else list(value)
+    if not 1 <= len(colours) <= 2 or not all(isinstance(c, str) and COLOUR.match(c.strip()) for c in colours):
+        sys.exit(f"build_deck: slide {slide.get('title', '')!r}: bg must be a colour or two colours, not {value!r}")
+    return colours[0], colours[-1]
+
+def bg_css(deck: dict, theme: dict, web: bool) -> str:
+    """Per slide backgrounds. PDF / no script: each slide paints its gradient under the theme's bgimg. Web page: one layer
+    behind the slides whose two colours are registered (@property) so they fade from one slide to the next instead of
+    cutting; a slide without "bg" takes the theme background."""
+    pairs = [slide_bg(s, theme) for s in deck["slides"]]
+    if not any(pairs):
+        return ""
+    angle = deck.get("bg_angle", BG_ANGLE)
+    rows = ["/* per slide backgrounds */"]
+    scope = "html:not(.js) " if web else "" # with the script, the fading layer behind the slides paints them
+    for number, pair in enumerate(pairs, 1):
+        if pair and theme.get("canva"): # a Canva import turns a gradient into a picture: the first colour only
+            rows.append(f"{scope}#s{number} {{ background-color: {pair[0]}; }}")
+        elif pair:
+            rows.append(f"{scope}#s{number} {{ background-color: {pair[0]}; background-image: var(--bgimg), linear-gradient({angle}, {pair[0]}, {pair[1]}); }}")
+    if not web:
+        return "\n".join(rows) + "\n"
+    fade = deck.get("bg_fade", BG_FADE)
+    rows += ['@property --c1 { syntax: "<color>"; inherits: true; initial-value: transparent; }',
+             '@property --c2 { syntax: "<color>"; inherits: true; initial-value: transparent; }',
+             ".js .slide { background-color: transparent; background-image: var(--bgimg); }",
+             "#deck { position: absolute; inset: 0; z-index: 1; }",
+             f'#stage::before {{ content: ""; position: absolute; inset: 0; z-index: 0; background-color: var(--c1); '
+             f"background-image: linear-gradient({angle}, var(--c1), var(--c2)); transition: --c1 {fade}s ease, --c2 {fade * 1.15:.2f}s ease; }}"]
+    for number, pair in enumerate(pairs, 1):
+        first, last = pair or (theme["bg"], theme["bg"])
+        rows.append(f'html[data-slide="{number}"] #stage::before {{ --c1: {first}; --c2: {last}; }}')
+    return "\n".join(rows) + "\n"
 
 SKELETON = """<div id="stage"><main id="deck" class="{cls}">
 {slides}
@@ -210,7 +277,8 @@ SKELETON = """<div id="stage"><main id="deck" class="{cls}">
 <div id="map" hidden></div>"""
 
 def build_web(deck: dict, theme: dict, base: Path, out: Path) -> None:
-    css = (TEMPLATES / "deck-base.css").read_text(encoding="utf-8") + "\n" + theme_css(theme) + "\n" + (TEMPLATES / "slides.css").read_text(encoding="utf-8") + custom_css(theme, base)
+    css = (TEMPLATES / "deck-base.css").read_text(encoding="utf-8") + "\n" + theme_css(theme) + "\n" + (TEMPLATES / "slides.css").read_text(encoding="utf-8") \
+        + "\n" + bg_css(deck, theme, True) + custom_css(theme, base)
     js = (TEMPLATES / "deck.js").read_text(encoding="utf-8")
     body = SKELETON.format(slides=slides_html(deck, base, True), cls="cartouche" if theme.get("cartouche") else "")
     page = (f'<!DOCTYPE html>\n<html lang="{deck.get("lang", "en")}">\n<head>\n<meta charset="utf-8">\n'
@@ -232,7 +300,7 @@ def build_pdf(deck: dict, theme: dict, base: Path, out: Path) -> None:
         from weasyprint import HTML
     except ImportError:
         raise MissingTool("the PDF needs weasyprint (sudo dnf install python3-weasyprint, or pip install --user weasyprint)") from None
-    css = theme_css(theme) + "\n" + (TEMPLATES / "slides.css").read_text(encoding="utf-8") + custom_css(theme, base)
+    css = theme_css(theme) + "\n" + (TEMPLATES / "slides.css").read_text(encoding="utf-8") + "\n" + bg_css(deck, theme, False) + custom_css(theme, base)
     cls = "print cartouche" if theme.get("cartouche") else "print"
     if theme.get("canva"):
         css += CANVA_CSS
@@ -332,7 +400,8 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
         chapter = spec.get("chapter", chapter) or deck.get("title", "")
         slide = prs.slides.add_slide(blank)
         slide.background.fill.solid()
-        slide.background.fill.fore_color.rgb = rgb(theme["bg"])
+        own = slide_bg(spec, theme)
+        slide.background.fill.fore_color.rgb = rgb(own[0] if own and re.match(r"^#[0-9a-fA-F]{6}$", own[0]) else theme["bg"])
         upper = theme["head_transform"] == "uppercase"
         title = spec.get("title", "")
         if theme.get("frame", "0") != "0":
@@ -474,7 +543,7 @@ def main() -> None:
         theme = {**canva_theme(theme), "canva": True}
     out = Path(args.out).resolve() if args.out else source.parent
     out.mkdir(parents=True, exist_ok=True)
-    stem = re.sub(r"[^a-z0-9]+", "-", plain(deck.get("title", "deck")).lower()).strip("-") or "deck"
+    stem = slug(plain(deck.get("title", "deck")))
     failed = []
     for fmt in formats:
         try:
