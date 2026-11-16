@@ -41,6 +41,7 @@ body { color: var(--tx); font-family: var(--font); background: var(--bg); margin
 .ok { color: var(--ok); } .bad { color: var(--warn); }
 .foot { position: absolute; left: 64px; right: 64px; bottom: 76px; display: flex; justify-content: space-between; font-size: 15px; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; z-index: 1; }
 .cartouche .foot { border-top: 1.5px solid var(--ink); padding-top: 6px; }
+html.nohud .foot { bottom: 22px; } .js .foot { transition: bottom .3s; } /* bar hidden (H): the footer goes down to the bottom, as in print */
 .k-title .foot, .k-section .foot { display: none; }
 .notes { display: none; }
 
