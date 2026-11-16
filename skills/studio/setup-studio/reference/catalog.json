@@ -248,11 +248,13 @@
         {
             "id": "kokoro", "name": "Kokoro TTS", "kind": "python",
             "domains": {"audio": ["voice"]},
-            "detect": {"python": ["kokoro"]},
+            "detect": {"bin": ["kokoro-tts"], "python": ["kokoro"]},
             "license": "Apache-2.0 (model and code)", "commercial": "yes", "cost": "free",
-            "install": {"pip": "kokoro soundfile"},
+            "install": {"pip": "kokoro soundfile (no command of its own: a venv + a kokoro-tts wrapper running python -m kokoro)"},
             "gpu": "optional, light (82M parameters)",
-            "why": "natural local text to speech with a permissive license"
+            "why": "natural local text to speech with a permissive license",
+            "recipes": [["French voice (needs espeak-ng)", "python -m kokoro -m ff_siwis -t \"Bonjour\" -o voice.wav"],
+                        ["English voice", "python -m kokoro -m af_heart -t \"Hello\" -o voice.wav"]]
         },
         {
             "id": "xtts", "name": "Coqui XTTS-v2", "kind": "python",

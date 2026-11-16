@@ -73,11 +73,28 @@ def first_line(text: str) -> str:
 def flatpaks() -> set:
     return set(run(["flatpak", "list", "--app", "--columns=application"]).split()) if shutil.which("flatpak") else set()
 
+def is_appimage(path: str) -> bool:
+    """A real AppImage: its extension, or the AppImage magic (AI 1 / AI 2) in the ELF header"""
+    if path.lower().endswith(".appimage"):
+        return True
+    try:
+        with open(path, "rb") as file:
+            head = file.read(11)
+    except OSError:
+        return False
+    return head[:4] == b"\x7fELF" and head[8:11] in (b"AI\x01", b"AI\x02")
+
 def appimages() -> list:
+    """Names of the AppImages of the usual folders (the scripts and links of ~/.local/bin are not AppImages)"""
     found = []
     for folder in APP_DIRS:
-        found += [os.path.basename(p).lower() for p in glob.glob(os.path.join(os.path.expanduser(folder), "*"))]
+        paths = glob.glob(os.path.join(os.path.expanduser(folder), "*"))
+        found += [os.path.basename(p).lower() for p in paths if os.path.isfile(p) and is_appimage(p)]
     return found
+
+def appimage_of(tool_id: str, name: str) -> bool:
+    """The AppImage is named after the tool (blender-4.2-x86_64.appimage), not just containing its id"""
+    return name == tool_id or (name.startswith(tool_id) and name[len(tool_id)] in "-_. ")
 
 def gpus() -> list:
     """GPUs with their VRAM (nvidia-smi first, then the DRM cards)"""
@@ -174,7 +191,7 @@ def detect(tool: dict, flat: set, apps: list, declared: set, connectors: set) ->
         except (ImportError, ValueError):
             pass
     where += [f"dir:{d}" for d in det.get("dirs", []) if os.path.isdir(os.path.expanduser(d))]
-    where += [f"appimage:{a}" for a in apps if tool["id"] in a and (a.endswith(".appimage") or "." not in a)]
+    where += [f"appimage:{a}" for a in apps if appimage_of(tool["id"], a)]
     where += [f"connector:{c}" for c in det.get("connector", []) if c.lower() in {n.lower() for n in connectors}]
     if tool["id"] in declared:
         where.append("declared")
