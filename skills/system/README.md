@@ -7,7 +7,7 @@ claude-cluster, chosen in a QCM before anything is deleted.
 <!-- generated:skills -->
 | Skill | What it does | Installs with it |
 |---|---|---|
-| [`computer-clean`](computer-clean/SKILL.md) | Frees space on the computer and in the data of Claude Code / claude-cluster: caches, trash, old build outputs (never a git-tracked file), Docker / Podman, journal, dnf, flatpak, big old downloads, old conversations, finished jobs, worktrees without changes, claude-cluster leftovers - listed with size and why, chosen in a QCM, then deleted for good. | [`interactive-questions`](../ai/interactive-questions/SKILL.md) |
+| [`computer-clean`](computer-clean/SKILL.md) | Frees as much space as possible: a deep scan of the caches (~/.cache, language tools, Chromium / Electron and flatpak apps), old build outputs and envs (never a git-tracked file), trash, downloads, duplicates, big old files, core dumps, Docker / Podman, flatpak, dnf, journals, old kernels and Claude Code / claude-cluster leftovers - each with its size (real gain on btrfs), what it is for and what deleting it does, chosen in a QCM, then deleted for good. | [`interactive-questions`](../ai/interactive-questions/SKILL.md) |
 <!-- /generated:skills -->
 
 The *Installs with it* column comes from each `requires.txt`: `./setup.sh install <skill>` installs them too.

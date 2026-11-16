@@ -82,7 +82,7 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | explanation page (how something works), simple + technical | `explain-doc` | `doc` |
 | protocol of a networking project (frames, handshake, codes, commands, storage) | `protocol-doc` | `doc` |
 | any other HTML page, palette / color / font | `html-style` | `doc` |
-| free space: caches, Docker, old builds, Claude Code / claude-cluster leftovers | `computer-clean` | - |
+| free space, deep clean: caches, old builds, downloads, duplicates, Docker, flatpak, dnf updates, old kernels, Claude Code / claude-cluster leftovers | `computer-clean` | - |
 | set up / scan / refresh the creative tools (audio, image, video, 3D, simulation / VFX / rendering, their MCP servers) as skills | `setup-studio` (then `/studio` routes the creative requests) | - |
 | a creative request: sound, music, voice, image, video, 3D model, simulation, render | the `studio` router when it was generated (`/studio`), else propose `setup-studio` | - |
 | commit the current diff locally ("fais le commit") | `git-commit` | `git` |
