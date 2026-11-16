@@ -45,6 +45,8 @@ import zipfile # Used for ZipFile
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL_DIR = os.path.dirname(HERE)
 CATALOG = os.path.join(SKILL_DIR, "reference", "catalog.json")
+ASSETS = os.path.join(SKILL_DIR, "assets") # the logo of the studio and one icon per domain
+LOGOS = ["logo.svg", "logo.png", "logo-3d.png"]
 MARK = "generated-by: setup-studio"
 KINDS = {"cli": "command line", "gui": "GUI app", "python": "Python package", "service": "local service",
          "model": "AI model", "connector": "claude.ai connector", "web": "web tool", "assets": "asset library"}
@@ -340,7 +342,8 @@ def single(skills: dict, domains: list) -> str:
     note = ("\nOn claude.ai the programs below run on the user's computer, not here: give the user the commands and the "
             "steps; the claude.ai connectors (ElevenLabs, Canva...) are used directly.\n")
     router = router.replace("\n## Domains", note + "\n## Domains", 1)
-    return router.rstrip() + "\n\n" + "\n\n".join(demote(skills[f"studio-{d}"]).strip() for d in domains) + "\n"
+    bodies = [demote(skills[f"studio-{d}"]).strip().replace("assets/icon.", f"assets/icons/{d}.") for d in domains]
+    return router.rstrip() + "\n\n" + "\n\n".join(bodies) + "\n"
 
 def write(folder: str, name: str, text: str, force: bool, dry: bool) -> str:
     path = os.path.join(folder, name, "SKILL.md")
@@ -353,6 +356,27 @@ def write(folder: str, name: str, text: str, force: bool, dry: bool) -> str:
             f.write(text)
         print(f"written {path} ({text.count(chr(10))} lines)")
     return os.path.dirname(path)
+
+def copy_assets(folder: str, domains: list, single_skill: bool, dry: bool) -> None:
+    """The logo in the router (with every icon in the combined skill), the icon of its domain in each domain skill."""
+    name = os.path.basename(folder)
+    pairs = []
+    if name == "studio":
+        pairs += [(os.path.join(ASSETS, f), os.path.join(folder, "assets", f)) for f in LOGOS]
+        if single_skill:
+            pairs += [(os.path.join(ASSETS, "icons", f"{d}.{ext}"), os.path.join(folder, "assets", "icons", f"{d}.{ext}"))
+                      for d in domains for ext in ("svg", "png")]
+    else:
+        d = name[len("studio-"):]
+        pairs += [(os.path.join(ASSETS, "icons", f"{d}.{ext}"), os.path.join(folder, "assets", f"icon.{ext}")) for ext in ("svg", "png")]
+    for src, dest in pairs:
+        if not os.path.isfile(src):
+            print(f"warning: {src} missing, not copied")
+            continue
+        if not dry:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copyfile(src, dest)
+    print(f"{'would copy' if dry else 'copied'} {len(pairs)} asset(s) into {name}/assets")
 
 def zip_skill(folder: str, dest: str) -> None:
     os.makedirs(dest, exist_ok=True)
@@ -396,6 +420,8 @@ def main() -> int:
                 print(f"{'would remove' if a.dry_run else 'removed'} {os.path.dirname(old)} (domain dropped)")
                 if not a.dry_run:
                     shutil.rmtree(os.path.dirname(old))
+    for folder in written:
+        copy_assets(folder, domains, a.single, a.dry_run)
     if a.dry_run:
         return 0
     state = os.path.join(written[0], "reference", "state.json")

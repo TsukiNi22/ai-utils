@@ -27,7 +27,8 @@ README/CHANGELOG, new libutils version...), without changing anything.
 - Docs: `README.md`, `CHANGELOG.md`, `docs/`.
 
 ## 3. Route
-The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `legal`, `audit`) are manual-only: don't call them with the Skill tool.
+The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `legal`, `audit`, and `studio` when
+`setup-studio` generated it on this computer) are manual-only: don't call them with the Skill tool.
 **Read** their decision table when the case is not obvious (`<router>/SKILL.md`), then load the
 **specific skills** with the Skill tool:
 

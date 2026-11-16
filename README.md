@@ -98,6 +98,7 @@ Invoked by hand, they read the request, the project and the language, then load 
 | Router | What it does |
 |---|---|
 | [`/dev`](skills/routers/dev/SKILL.md) | Global development entry point: looks at the request, the project and the language, then loads the right skills of every category (and the other routers). |
+| <img src="skills/studio/setup-studio/assets/logo.png" alt="" width="20"> [`/studio`](skills/studio/README.md) | Creative work (audio, image, video, 3D, simulation / VFX / rendering) with the tools of the computer: generated on each computer by `setup-studio`, it loads the studio skill of every domain the request touches (which tool, where, how, why). |
 | [`/audit`](skills/routers/audit/SKILL.md) | Asks which audits to run (checklist: `audit-bugs`, `audit-security`, `audit-quality`, `audit-deps`, `legal-check`, `coverage`, `benchmark`; coverage and benchmark checked and run automatically) and the report format, runs them and writes a summary report in `audit/`. |
 | [`/cpp`](skills/routers/cpp/SKILL.md) | Loads `cpp-project`, `cpp-class`, `cpp-style`, `cpp-comments`, `cmake-style`, `cpp-tests`, `audit-bugs`, `audit-quality`, `libutils`, `libutils-exception`, `libutils-install`, `libutils-setup`, `coverage`, `benchmark`, `ci-cd`. |
 | [`/doc`](skills/routers/doc/SKILL.md) | Loads `readme-style`, `html-doc`, `html-style`, `explain-doc`, `protocol-doc`, `better-html-doc`, `better-html-style`, `better-explain-doc`, `better-protocol-doc`, `report`, `docs-update`, `git-conventions` (CHANGELOG), `comments`, `cpp-comments`. |

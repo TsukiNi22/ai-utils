@@ -1,5 +1,7 @@
 # Studio skills
 
+<img src="setup-studio/assets/logo-3d.png" alt="studio" width="160">
+
 Creative work with the tools of the computer: `setup-studio` scans what is installed for audio, image, video, 3D and
 simulation / VFX / rendering (programs, flatpaks, Python packages, MCP servers, claude.ai connectors, GPU), fills the
 gaps with free tools the user accepts, then **generates** the skills that use them. Those generated skills describe
@@ -16,14 +18,18 @@ The *Installs with it* column comes from each `requires.txt`: `./setup.sh instal
 
 ## What it generates
 
-| Skill | For |
-|---|---|
-| `/studio` | router: reads a creative request and loads the domain skills it touches |
-| `studio-audio` | music, sound effects, voice, transcription, stems |
-| `studio-image` | retouching, painting, vector, photo, batch, web compression, generation, upscaling |
-| `studio-video` | editing, command-line cuts and encodes, compositing, motion graphics, subtitles, generation |
-| `studio-3d` | modeling, CAD, mesh processing, materials, low-poly, image-to-3D, real-time |
-| `studio-vfx` | fluids / smoke / cloth / particles, rendering, compositing, CFD, physics from code |
+| | Skill | For |
+|---|---|---|
+| <img src="setup-studio/assets/logo.png" alt="" width="40"> | `/studio` | router: reads a creative request and loads the domain skills it touches |
+| <img src="setup-studio/assets/icons/audio.png" alt="" width="40"> | `studio-audio` | music, sound effects, voice, transcription, stems |
+| <img src="setup-studio/assets/icons/image.png" alt="" width="40"> | `studio-image` | retouching, painting, vector, photo, batch, web compression, generation, upscaling |
+| <img src="setup-studio/assets/icons/video.png" alt="" width="40"> | `studio-video` | editing, command-line cuts and encodes, compositing, motion graphics, subtitles, generation |
+| <img src="setup-studio/assets/icons/3d.png" alt="" width="40"> | `studio-3d` | modeling, CAD, mesh processing, materials, low-poly, image-to-3D, real-time |
+| <img src="setup-studio/assets/icons/vfx.png" alt="" width="40"> | `studio-vfx` | fluids / smoke / cloth / particles, rendering, compositing, CFD, physics from code |
+
+The logo (a glass prism splitting a ray into the five domains, under a clapper) and the icons are in
+[`setup-studio/assets/`](setup-studio/assets): `logo.svg` (flat), `logo.png`, `logo-3d.png` (rendered in Blender),
+`icons/<domain>.svg` / `.png`; `setup-studio` copies them into the skills it generates.
 
 Each one has a *Which tool for what* table (the installed tool chosen per task and why), how to drive each tool (MCP
 server, command line headless, GUI), ready commands, license and **commercial use** of each tool, and what is still

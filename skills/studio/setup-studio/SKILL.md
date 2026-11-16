@@ -19,6 +19,11 @@ one skill per domain that says, for each task, **which tool, where, how and why*
 | 3D: modeling, CAD, texturing | `studio-3d` | model, cad, mesh, texture, lowpoly, generate, realtime, assets |
 | Simulation, VFX and rendering | `studio-vfx` | sim, render, compositing, cfd, physics, realtime |
 
+`assets/` holds the studio's look, copied into what is generated: the logo (`assets/logo.svg` flat for any size,
+`assets/logo.png`, `assets/logo-3d.png` rendered in Blender: a glass prism splitting a ray into the five domains under a
+clapper) in the router, and one icon per domain (`assets/icons/<domain>.svg` / `.png`) as `assets/icon.svg` of each
+domain skill (all of them in the combined claude.ai skill).
+
 The catalog lists ~70 free tools with their roles, detection, license, **commercial use** (yes / conditions / no),
 install commands, MCP servers known, GPU needs and ready commands. It is the starting point, not the limit.
 
