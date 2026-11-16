@@ -31,6 +31,7 @@ THEME_VARS = ("bg", "paper", "ink", "ink2", "tx", "dim", "code", "codetx", "warn
               "head_transform", "head_spacing", "head_weight", "radius", "bgimg", "frame", "inner_frame") # always written
 COLOUR = re.compile(r"^(#[0-9a-fA-F]{3,8}|(rgb|rgba|hsl|hsla)\(.*\))$") # an extra theme key holding a colour
 SVG_PAINT = re.compile(r'\s(fill|stroke|stop-color|flood-color|color)="(var\(--[a-z0-9-]+\))"') # var() in an attribute
+REVEAL_FIRST, REVEAL_GAP, REVEAL_MAX = 0.25, 0.12, 12 # "reveal": "auto": first delay, gap between steps (s), steps timed
 BG_ANGLE, BG_FADE = "115deg", 1.4 # per slide gradients: direction, seconds of the colour fade on the web page
 
 # ======================================================================= model
@@ -276,11 +277,26 @@ SKELETON = """<div id="stage"><main id="deck" class="{cls}">
 </div>
 <div id="map" hidden></div>"""
 
+def reveal_auto(slides: str) -> tuple[str, str]:
+    """"reveal": "auto": no click per point. The build steps (data-s) become an entrance played when the slide comes in,
+    one after the other; one click (or arrow) per slide. The PDF is not concerned (it shows every step anyway)."""
+    rows = ['@keyframes reveal-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }',
+            '.js .slide[data-state="active"] [data-in] { animation: reveal-in .5s cubic-bezier(.16,.84,.3,1) both; }']
+    rows += [f'.js .slide[data-state="active"] [data-in="{n}"] {{ animation-delay: {REVEAL_FIRST + (n - 1) * REVEAL_GAP:.2f}s; }}' for n in range(1, REVEAL_MAX + 1)]
+    return re.sub(r'\sdata-s="(\d+)"', r' data-in="\1"', slides), "\n".join(rows) + "\n"
+
 def build_web(deck: dict, theme: dict, base: Path, out: Path) -> None:
     css = (TEMPLATES / "deck-base.css").read_text(encoding="utf-8") + "\n" + theme_css(theme) + "\n" + (TEMPLATES / "slides.css").read_text(encoding="utf-8") \
         + "\n" + bg_css(deck, theme, True) + custom_css(theme, base)
     js = (TEMPLATES / "deck.js").read_text(encoding="utf-8")
-    body = SKELETON.format(slides=slides_html(deck, base, True), cls="cartouche" if theme.get("cartouche") else "")
+    slides = slides_html(deck, base, True)
+    if deck.get("reveal", "click") == "auto":
+        slides, motion = reveal_auto(slides)
+        css += "\n" + motion
+    elif deck.get("reveal", "click") != "click":
+        sys.exit(f"build_deck: reveal must be \"click\" (a click per point) or \"auto\" (everything on arrival), not {deck['reveal']!r}")
+    slides = re.sub(r'\sdata-click="(\d+)"', r' data-s="\1"', slides) # always one click each, even with reveal auto
+    body = SKELETON.format(slides=slides, cls="cartouche" if theme.get("cartouche") else "")
     page = (f'<!DOCTYPE html>\n<html lang="{deck.get("lang", "en")}">\n<head>\n<meta charset="utf-8">\n'
             f'<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>{html.escape(plain(deck.get("title", "")))}</title>\n'
             f'<style>\n{css}\n</style>\n</head>\n<body>\n{body}\n<script>\n{js}\n</script>\n</body>\n</html>\n')
