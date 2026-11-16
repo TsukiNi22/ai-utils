@@ -97,10 +97,11 @@ points / columns / steps / `data-s` blocks appear one per click on the web page;
 slide comes in, one after the other in a short entrance, one click per slide - for a pitch or when the user does not want
 to click through; the slide's own entrance animations stay; a block of an `svg` slide marked `data-click="1"`, `"2"`...
 still waits for its click in both modes: the figures of a problem slide, a punchline). A slide: `kind`, `title`,
-`chapter` (the bar of the web page), `lead` (one line under the title), `notes` (what is said aloud), `bg` (optional: one colour, or two for
-a gradient: the slide's own background; the web page **fades** the colours from one slide to the next instead of cutting,
-the PDF paints each slide's gradient, the PPTX its first colour, `--canva` a solid colour). The slides are `#s1`, `#s2`...
-in the HTML / PDF: a `theme.css` can style one slide or a run of slides (`#s2, #s3 { --ink: var(--acc1); }`).
+`chapter` (the bar of the web page), `lead` (one line under the title), `notes` (what is said aloud), `bg` (optional:
+one colour, or two for a gradient: the slide's own background; the web page **fades** the colours from one slide to the
+next instead of cutting, the PDF paints each slide's gradient, the PPTX its first colour, `--canva` a solid colour). The
+slides are `#s1`, `#s2`... in the HTML / PDF: a `theme.css` can style one slide or a run of slides
+(`#s2, #s3 { --ink: var(--acc1); }`).
 
 | kind | Fields | Use |
 |---|---|---|
