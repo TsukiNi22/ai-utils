@@ -9,7 +9,7 @@ one teaches the assistant how I work (code style, file layout, tooling), so that
 One installer, [`setup.sh`](setup.sh), for the skills, the [tools](#tools) and the global [context](#context).
 
 <!-- generated:counts -->
-**61 skills** in 13 categories and **9 routers**.
+**62 skills** in 13 categories and **9 routers**.
 <!-- /generated:counts -->
 
 ### Table of Contents
@@ -87,6 +87,7 @@ Once installed, a skill is used **automatically** when the request matches it, o
 | be asked the doubts first, get ideas | `/clarify`, `/ideation` |
 | stop cleanly now, resume later | `/pause`, then *"continue"* (`continue-work`) |
 | hand the work to another session | *"export the session"* (`export`) |
+| link sessions on two computers (files, requests) | `/session-link` (host on one, join on the other) |
 | use my audio / image / video / 3D / VFX tools | `/setup-studio` once (scans, fills the gaps, generates `/studio`), then `/studio` |
 | free disk space | *"clean my computer"* (`computer-clean`) |
 
@@ -128,7 +129,7 @@ each skill does, what it installs with it) and examples.
 | [UX](skills/ux/README.md) | Several languages (multilingual-project, multilingual-website) and visual modes light / dark / system / high contrast (color-modes-project, color-modes-website) | `color-modes-project`, `color-modes-website`, `multilingual-project`, `multilingual-website` |
 | [Studio](skills/studio/README.md) | Scans the audio, image, video, 3D and simulation / VFX / rendering tools of the computer (programs, MCP servers, connectors, GPU), finds free tools for what is missing and installs the accepted ones, then generates a /studio router and one skill per domain saying which tool to use, where, how and why | `setup-studio` |
 | [System](skills/system/README.md) | Free space on the computer and in the data of Claude Code / claude-cluster, chosen in a QCM | `computer-clean` |
-| [AI workflow](skills/ai/README.md) | --rtk outputs, QCM questions, clarification, ideation, a run without interruption, a clean pause resumed at the next continue, session context, writing in the user's voice, handover, onboarding, presentations (PDF / HTML / PPTX), full git permission | `ask-at-end`, `clarify`, `continue-work`, `export`, `full-permission`, `ideation`, `interactive-questions`, `onboard`, `pause`, `presentation`, `rtk`, `setup-context`, `write-like-me` |
+| [AI workflow](skills/ai/README.md) | --rtk outputs, QCM questions, clarification, ideation, a run without interruption, a clean pause resumed at the next continue, session context, the user's voice, handover, onboarding, presentations, full git permission, sessions on several computers linked | `ask-at-end`, `clarify`, `continue-work`, `export`, `full-permission`, `ideation`, `interactive-questions`, `onboard`, `pause`, `presentation`, `rtk`, `session-link`, `setup-context`, `write-like-me` |
 <!-- /generated:categories -->
 
 ## Tools

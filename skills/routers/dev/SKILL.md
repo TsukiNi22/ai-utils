@@ -49,6 +49,7 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | request unclear / ambiguous / incomplete, "clarifie", "vérifie que tu as compris", ask before acting | `clarify` (uses `interactive-questions`) | - |
 | ideas, recommendations, an opinion on ideas, variants ("des idées ?", "ton avis", "améliore cette idée", brainstorm) | `ideation` (uses `interactive-questions`) | - |
 | hand the work over to another session / machine / model ("export", "passation", "handoff", PASSATION.md) | `export` (uses `rtk`) | - |
+| link Claude sessions on several computers: send files / requests between them, a client / server between sessions ("connecte les deux sessions", /session-link) | `session-link` (uses `interactive-questions`) | - |
 | set up the context before working ("setup le contexte", read the repo and the old / archived sessions, load the useful skills / MCP) | `setup-context` (uses `onboard` when installed, `interactive-questions`) | - |
 | no interruption until the end ("ne pose aucune question", "fais tout d'une traite", "pose tes questions à la fin") | `ask-at-end` (asks at the end with `interactive-questions` / `ideation`) | - |
 | stop cleanly now and resume later ("stop tout proprement", "mets en pause", "on reprendra plus tard", /pause) | `pause` (checkpoint in `~/.claude/pauses`) | - |
