@@ -6,27 +6,36 @@
 deck.json (see ../templates/example.json):
     {"title", "subtitle", "lang", "author", "date", "duration": minutes, "theme": "blueprint", "slides": [slide, ...]}
 slide = {"kind", "title", "chapter", "notes", "bg", ...}; kinds: title, section, bullets, columns, table, code, image, svg,
-steps, quote, end. Text accepts `code` and **bold**. The HTML page shows the points one by one (build steps), the PDF
-and the PPTX show every step at once. "bg" (one colour or two for a gradient) gives a slide its own background: the
-web page fades the colours from one slide to the next. Themes: ../templates/themes.json, ~/.claude/presentation/themes/*.json, --theme-file.
+steps, grid, big, quote, end. Text accepts `code` and **bold**. The HTML page shows the points one by one (build steps),
+the PDF and the PPTX show every step at once. "bg" (one colour or two for a gradient) gives a slide its own background:
+the web page fades the colours from one slide to the next. Pictures: "icon" on a point / column / step / grid item (an
+SVG takes the theme colour), "src" on bullets (a picture beside the points), "full" on an image (the whole slide),
+"credit" under a picture. Themes: ../templates/themes.json, ~/.claude/presentation/themes/*.json, --theme-file.
 """
 import argparse
 import base64
 import html
+import itertools
 import json
 import mimetypes
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import unicodedata
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 TEMPLATES = HERE.parent / "templates"
 USER_THEMES = Path.home() / ".claude" / "presentation" / "themes"
-KINDS = ("title", "section", "bullets", "columns", "table", "code", "image", "svg", "steps", "quote", "end")
+KINDS = ("title", "section", "bullets", "columns", "table", "code", "image", "svg", "steps", "grid", "big", "quote", "end")
 NEEDS = {"bullets": "points", "columns": "columns", "table": "rows", "code": "code", "image": "src", "svg": "svg", "steps": "steps",
-         "quote": "text"} # what a slide of this kind cannot be built without
-LISTS = ("points", "columns", "rows", "steps")
+         "grid": "items", "quote": "text"} # what a slide of this kind cannot be built without
+LISTS = ("points", "columns", "rows", "steps", "items")
+UNTITLED = ("quote", "svg", "end", "big") # kinds whose title is optional
+PICTURE_IDS = itertools.count(1) # prefix of the ids of each SVG put inline (two logos may both use #a)
+PIC_HEIGHT = {"image": 470, "split": 440} # px of a picture box, minus the lead and the caption when there are some
 THEME_VARS = ("bg", "paper", "ink", "ink2", "tx", "dim", "code", "codetx", "warn", "ok", "font", "head_font", "mono",
               "head_transform", "head_spacing", "head_weight", "radius", "bgimg", "frame", "inner_frame") # always written
 COLOUR = re.compile(r"^(#[0-9a-fA-F]{3,8}|(rgb|rgba|hsl|hsla)\(.*\))$") # an extra theme key holding a colour
@@ -93,7 +102,7 @@ def check_model(deck: dict) -> None:
         kind = slide.get("kind")
         if kind not in KINDS:
             sys.exit(f"build_deck: slide {index}: unknown kind {kind!r} (known: {', '.join(KINDS)})")
-        if kind not in ("quote", "svg", "end") and not slide.get("title"):
+        if kind not in UNTITLED and not slide.get("title"):
             sys.exit(f"build_deck: slide {index} ({kind}) has no title")
         key = NEEDS.get(kind)
         if key and not slide.get(key):
@@ -101,9 +110,14 @@ def check_model(deck: dict) -> None:
         if key in LISTS and not isinstance(slide[key], list):
             sys.exit(f"build_deck: slide {index} ({kind}): '{key}' must be a list")
         if key in ("columns", "steps") and not all(isinstance(item, dict) for item in slide[key]):
-            sys.exit(f"build_deck: slide {index} ({kind}): each of '{key}' must be an object (head, {'points' if key == 'columns' else 'text'})")
+            sys.exit(f"build_deck: slide {index} ({kind}): each of '{key}' must be an object (head, {'points' if key == 'columns' else 'text'}, icon)")
         if key == "points" and not all(isinstance(item, str) or (isinstance(item, dict) and item.get("text")) for item in slide[key]):
-            sys.exit(f"build_deck: slide {index} ({kind}): a point is a text or an object with a 'text' (and 'sub')")
+            sys.exit(f"build_deck: slide {index} ({kind}): a point is a text or an object with a 'text' (and 'sub', 'icon')")
+        if key == "items" and not all(isinstance(item, dict) and item.get("icon") for item in slide[key]):
+            sys.exit(f"build_deck: slide {index} (grid): each item is an object with an 'icon' (and a 'label')")
+        if kind == "big" and slide.get("value") in (None, "") and not (isinstance(slide.get("items"), list) and slide["items"]
+                                                                        and all(isinstance(i, dict) and i.get("value") not in (None, "") for i in slide["items"])):
+            sys.exit(f"build_deck: slide {index} (big) needs a 'value' (or 'items': [{{value, label}}, ...])")
 
 def inline(text: str) -> str:
     """Escape, then `code` and **bold**."""
@@ -134,12 +148,17 @@ def svg_paint(markup: str) -> str:
 def plain(text: str) -> str:
     return re.sub(r"\*\*([^*]+)\*\*|`([^`]+)`", lambda m: m.group(1) or m.group(2), str(text))
 
-def points(slide: dict, key: str = "points") -> list[tuple[str, list[str]]]:
-    """A list of "text" or {"text", "sub": [...]} as (text, subs)."""
+def points(slide: dict, key: str = "points") -> list[tuple[str, list[str], str]]:
+    """A list of "text" or {"text", "sub": [...], "icon"} as (text, subs, icon)."""
     out = []
     for item in slide.get(key, []):
-        out.append((item, []) if isinstance(item, str) else (item["text"], list(item.get("sub", []))))
+        out.append((item, [], "") if isinstance(item, str) else (item["text"], list(item.get("sub", [])), item.get("icon", "")))
     return out
+
+def label_of(slide: dict) -> str:
+    """What names a slide in the outline, the notes and the PDF bookmarks."""
+    first = (slide.get("items") or [{}])[0] if slide["kind"] == "big" else {}
+    return plain(slide.get("title") or slide.get("text") or slide.get("value") or first.get("value") or "")
 
 def data_uri(path: str, base: Path) -> str:
     file = (base / path).resolve()
@@ -148,11 +167,64 @@ def data_uri(path: str, base: Path) -> str:
     kind = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
     return f"data:{kind};base64," + base64.b64encode(file.read_bytes()).decode("ascii")
 
+def svg_inline(file: Path, key: str) -> str | None:
+    """An SVG file made fit to sit inline in the page (it then takes the theme colour), or None when it must stay a
+    picture (a <style> or an <image> would leak into the page). Nothing that runs is kept (script, foreignObject, on*
+    handlers, links out of the file), nor its own size (the CSS sizes it); its ids get the prefix `key`. A one-colour
+    icon (no fill anywhere: Simple Icons) is filled with currentColor."""
+    text = re.sub(r"<\?xml.*?\?>|<!DOCTYPE[^>]*>|<!--.*?-->", "", file.read_text(encoding="utf-8", errors="replace"), flags=re.S | re.I)
+    if re.search(r"<(style|image)\b|@import", text, re.I):
+        return None
+    text = re.sub(r"<(script|foreignObject|title|metadata)\b.*?</\1\s*>|<(script|foreignObject)\b[^>]*/>", "", text, flags=re.S | re.I)
+    text = re.sub(r"\son[a-z]+\s*=\s*(\"[^\"]*\"|'[^']*')", "", text, flags=re.I)
+    text = re.sub(r"((?:xlink:)?href\s*=\s*[\"'])(?!#)[^\"']*", r"\1#", text, flags=re.I)
+    start, end = text.find("<svg"), text.rfind("</svg>")
+    if start < 0 or end < 0:
+        sys.exit(f"build_deck: {file}: not an SVG")
+    text = text[start:end + 6]
+    for ident in set(re.findall(r'\sid="([^"]+)"', text)):
+        new = f"{key}-{ident}"
+        text = text.replace(f'id="{ident}"', f'id="{new}"').replace(f"url(#{ident})", f"url(#{new})").replace(f'href="#{ident}"', f'href="#{new}"')
+    cut = text.find(">")
+    root = re.sub(r'\s(width|height|class|style)="[^"]*"', "", text[:cut]).rstrip("/").rstrip()
+    if "fill=" not in root and not re.search(r'\sfill="(?!none")|fill:\s*(?!none)', text):
+        root += ' fill="currentColor"'
+    return root + ' data-ic="1" aria-hidden="true" focusable="false"' + text[cut:]
+
+def picture(path: str, base: Path, cls: str, alt: str = "", inline: bool = True, height: int = 0) -> str:
+    """An icon / a picture of the deck folder in a <span class=cls>: an SVG inline (it takes the theme colour) when it
+    can be, anything else an <img> data URI. No alt = decorative (the text next to it says it)."""
+    file = (base / path).resolve()
+    if not file.is_file():
+        sys.exit(f"build_deck: picture not found: {file}")
+    size = f' style="height:{height}px"' if height else ""
+    label = f'role="img" aria-label="{html.escape(alt)}"' if alt else 'aria-hidden="true"'
+    markup = svg_inline(file, f"p{next(PICTURE_IDS)}") if inline and file.suffix.lower() == ".svg" else None
+    if markup:
+        return f'<span class="{cls}" {label}{size}>{markup}</span>'
+    return f'<span class="{cls}"{size}><img src="{data_uri(path, base)}" alt="{html.escape(alt)}"></span>'
+
+def visual(slide: dict) -> bool:
+    """A slide carried by its pictures (icons, logos, a picture beside the points): laid out bigger and centered."""
+    kind = slide["kind"]
+    parts = [p for p in slide.get("points", []) + slide.get("columns", []) + slide.get("steps", []) if isinstance(p, dict)]
+    return kind == "grid" or (kind == "bullets" and bool(slide.get("src"))) or any(p.get("icon") for p in parts)
+
+def credit(slide: dict) -> str:
+    return f'<small class="credit">{inline(slide["credit"])}</small>' if slide.get("credit") else ""
+
 # ======================================================================= html (web page and PDF share it)
 def slide_inner(slide: dict, number: int, base: Path) -> str:
     kind, title = slide["kind"], slide.get("title", "")
     head = f"<h2>{inline(title)}</h2>" if title and kind not in ("title", "section", "end") else ""
     lead = f'<p class="lead">{inline(slide["lead"])}</p>' if slide.get("lead") else ""
+    mid = visual(slide)
+
+    def body(markup: str) -> str:
+        """A visual slide: its body in a box that fills the slide under the title and centers it (what WeasyPrint does
+        right; auto margins on a flex child are not centered there)."""
+        return f'<div class="mid">{markup}</div>' if mid else markup
+
     if kind == "title":
         meta = "".join(f"<li>{inline(m)}</li>" for m in slide.get("meta", []))
         return (f"<h1>{inline(title)}</h1><p class=\"sub\">{inline(slide.get('subtitle', ''))}</p>"
@@ -161,16 +233,35 @@ def slide_inner(slide: dict, number: int, base: Path) -> str:
         return (f'<div class="num">{slide.get("number", "")}</div><h2>{inline(title)}</h2>'
                 + (f'<p class="lead">{inline(slide["lead"])}</p>' if slide.get("lead") else ""))
     if kind == "bullets":
+        listed = points(slide)
+        icons = any(icon for _, _, icon in listed)
         items = "".join(
-            f'<li data-s="{i}">{inline(text)}' + (f"<ul>{''.join(f'<li>{inline(s)}</li>' for s in subs)}</ul>" if subs else "") + "</li>"
-            for i, (text, subs) in enumerate(points(slide), 1))
-        return f"{head}{lead}<ul>{items}</ul>"
+            f'<li data-s="{i}"' + (' class="has-ic">' + (picture(icon, base, "ic") if icon else '<span class="ic"></span>') + '<div class="pt">' if icons else ">")
+            + inline(text) + (f"<ul>{''.join(f'<li>{inline(s)}</li>' for s in subs)}</ul>" if subs else "") + ("</div>" if icons else "") + "</li>"
+            for i, (text, subs, icon) in enumerate(listed, 1))
+        listing = f'<ul class="icons">{items}</ul>' if icons else f"<ul>{items}</ul>"
+        if not slide.get("src"):
+            return f"{head}{lead}{body(listing)}"
+        height = PIC_HEIGHT["split"] - (60 if lead else 0) - (26 if slide.get("credit") else 0)
+        side = picture(slide["src"], base, "pic", slide.get("alt") or plain(title), height=height)
+        return f'{head}{lead}' + body(f'<div class="split"><div class="side">{listing}</div><figure>{side}{credit(slide)}</figure></div>')
     if kind == "columns":
         cols = slide.get("columns", [])
-        body = "".join(
-            f'<div class="col" data-s="{i}"><h3>{inline(c.get("head", ""))}</h3><ul>'
-            + "".join(f"<li>{inline(p)}</li>" for p in c.get("points", [])) + "</ul></div>" for i, c in enumerate(cols, 1))
-        return f'{head}{lead}<div class="cols" style="--n:{len(cols)}">{body}</div>'
+        cells = "".join(
+            f'<div class="col" data-s="{i}">' + (picture(c["icon"], base, "ic") if c.get("icon") else "") + f'<h3>{inline(c.get("head", ""))}</h3>'
+            + (f"<ul>{''.join(f'<li>{inline(p)}</li>' for p in c['points'])}</ul>" if c.get("points") else "") + "</div>" for i, c in enumerate(cols, 1))
+        return f'{head}{lead}' + body(f'<div class="cols" style="--n:{len(cols)}">{cells}</div>')
+    if kind == "grid":
+        cells = slide.get("items", [])
+        per_row = len(cells) if len(cells) <= 4 else 3 if len(cells) in (5, 6, 9) else 4
+        tiles = "".join(f'<li data-s="{i}">{picture(c["icon"], base, "ic", "" if c.get("label") else c.get("alt") or Path(c["icon"]).stem)}'
+                       + (f'<span class="lbl">{inline(c["label"])}</span>' if c.get("label") else "") + "</li>" for i, c in enumerate(cells, 1))
+        return f'{head}{lead}' + body(f'<ul class="grid{" many" if len(cells) > 4 else ""}" style="--n:{per_row}">{tiles}</ul>')
+    if kind == "big":
+        stats = slide.get("items") or [{"value": slide.get("value"), "label": slide.get("label", "")}]
+        figures = "".join(f'<div class="stat"' + (f' data-s="{i}"' if len(stats) > 1 else "") + f'><div class="v">{inline(s["value"])}</div>'
+                       + (f'<p class="l">{inline(s["label"])}</p>' if s.get("label") else "") + "</div>" for i, s in enumerate(stats, 1))
+        return f'{head}{lead}<div class="stats{" one" if len(stats) == 1 else ""}" style="--n:{len(stats)}">{figures}</div>'
     if kind == "table":
         thead = "".join(f"<th scope=\"col\">{inline(h)}</th>" for h in slide.get("head", []))
         rows = "".join("<tr>" + "".join(f"<td>{inline(c)}</td>" for c in row) + "</tr>" for row in slide.get("rows", []))
@@ -179,21 +270,26 @@ def slide_inner(slide: dict, number: int, base: Path) -> str:
         caption = f'<p class="caption">{inline(slide["caption"])}</p>' if slide.get("caption") else ""
         return f'{head}{lead}<pre><code>{html.escape(slide.get("code", ""))}</code></pre>{caption}'
     if kind == "image":
-        alt = html.escape(slide.get("alt") or plain(title))
+        alt = slide.get("alt") or plain(title)
         caption = f"<figcaption>{inline(slide['caption'])}</figcaption>" if slide.get("caption") else ""
-        return f'{head}{lead}<figure><img src="{data_uri(slide["src"], base)}" alt="{alt}">{caption}</figure>'
+        if slide.get("full"): # the picture covers the slide, the title on a band over it
+            band = f'<div class="band"><h2>{inline(title)}</h2>{lead}</div>' if title else ""
+            return f'<figure class="bleed" data-nocheck>{picture(slide["src"], base, "pic", alt, inline=False)}</figure>{band}{credit(slide)}'
+        height = PIC_HEIGHT["image"] - (60 if lead else 0) - (36 if caption else 0) - (26 if slide.get("credit") else 0)
+        return f'{head}{lead}<figure>{picture(slide["src"], base, "pic", alt, height=height)}{caption}{credit(slide)}</figure>'
     if kind == "svg":
         caption = f"<figcaption>{inline(slide['caption'])}</figcaption>" if slide.get("caption") else ""
         return f'{head}{lead}<figure>{svg_paint(slide.get("svg", ""))}{caption}</figure>'
     if kind == "steps":
         steps = slide.get("steps", [])
-        items = "".join(f'<li data-s="{i}"><h3>{inline(s.get("head", ""))}</h3><p>{inline(s.get("text", ""))}</p></li>' for i, s in enumerate(steps, 1))
-        return f'{head}{lead}<ol class="flow" style="--n:{min(len(steps), 4)}">{items}</ol>'
+        items = "".join(f'<li data-s="{i}"' + (f' class="has-ic">{picture(s["icon"], base, "ic")}' if s.get("icon") else ">")
+                        + f'<h3>{inline(s.get("head", ""))}</h3>' + (f'<p>{inline(s["text"])}</p>' if s.get("text") else "") + "</li>" for i, s in enumerate(steps, 1))
+        return f'{head}{lead}' + body(f'<ol class="flow" style="--n:{min(len(steps), 4)}">{items}</ol>')
     if kind == "quote":
         who = f"<cite>{inline(slide['by'])}</cite>" if slide.get("by") else ""
         return f"<blockquote>{inline(slide.get('text', ''))}</blockquote>{who}"
     links = "".join(f"<li>{inline(link)}</li>" for link in slide.get("links", []))  # end
-    image = f'<figure><img src="{data_uri(slide["src"], base)}" alt="{html.escape(slide.get("alt", ""))}" style="max-height:260px"></figure>' if slide.get("src") else ""
+    image = f'<figure>{picture(slide["src"], base, "pic", slide.get("alt", ""), height=260)}</figure>' if slide.get("src") else ""
     return f'<h1>{inline(title or "Thank you")}</h1><p class="sub">{inline(slide.get("subtitle", ""))}</p><ul>{links}</ul>{image}'
 
 def slides_html(deck: dict, base: Path, with_notes: bool) -> str:
@@ -201,10 +297,12 @@ def slides_html(deck: dict, base: Path, with_notes: bool) -> str:
     chapter = ""
     for number, slide in enumerate(deck["slides"], 1):
         chapter = slide.get("chapter", chapter) or deck.get("title", "")
-        title = plain(slide.get("title") or slide.get("text") or deck.get("title", ""))
+        title = label_of(slide) or plain(deck.get("title", ""))
         notes = f'<div class="notes">{inline(slide["notes"])}</div>' if with_notes and slide.get("notes") else ""
         foot = f'<div class="foot"><span>{html.escape(plain(deck.get("title", "")))}</span><span>{html.escape(chapter)} · {number}</span></div>'
-        out.append(f'<section class="slide k-{slide["kind"]}" id="s{number}" data-ch="{html.escape(chapter)}" '
+        full = " full" if slide["kind"] == "image" and slide.get("full") else ""
+        full += " v" if visual(slide) else ""
+        out.append(f'<section class="slide k-{slide["kind"]}{full}" id="s{number}" data-ch="{html.escape(chapter)}" '
                    f'data-title="{html.escape(title)}">{slide_inner(slide, number, base)}{foot}{notes}</section>')
     return "\n".join(out)
 
@@ -330,7 +428,10 @@ def pdf_svg(page: str, theme: dict) -> str:
     Give each <svg> the text colour of the theme and turn var(--key) into its value (the web page keeps the variables)."""
     def resolve(match: re.Match) -> str:
         block = re.sub(r"var\(--([a-z0-9-]+)\)", lambda v: str(theme.get(v.group(1).replace("-", "_"), v.group(0))), match.group(0))
-        return block if re.match(r"<svg[^>]*\scolor=", block) else block.replace("<svg", f'<svg color="{theme["tx"]}"', 1)
+        opening = block[:block.find(">")]
+        if re.search(r"\scolor=", opening):
+            return block
+        return block.replace("<svg", f'<svg color="{theme["ink"] if "data-ic=" in opening else theme["tx"]}"', 1) # icons: the accent
     return re.sub(r"<svg\b.*?</svg>", resolve, page, flags=re.S)
 
 # ======================================================================= pptx
@@ -345,7 +446,7 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
     try:
         from pptx import Presentation
         from pptx.enum.shapes import MSO_SHAPE
-        from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE
+        from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
         from pptx.util import Emu, Inches, Pt
     except ImportError:
         raise MissingTool("the PPTX needs python-pptx (pip install --user python-pptx, or sudo dnf install python3-python-pptx)") from None
@@ -410,6 +511,63 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
                 run.font.color.rgb = rgb(theme["ink"] if strong else (theme["dim"] if level else color))
         return frame
 
+    work = Path(tempfile.mkdtemp(prefix="deck-pptx-"))
+    rendered: dict[tuple[str, str], str | None] = {}
+
+    def raster(path: str, colour: str) -> str | None:
+        """A file python-pptx can place: PNG / JPEG as they are, an SVG rendered to PNG (currentColor = colour) with
+        rsvg-convert, inkscape or magick, WebP / GIF / AVIF through Pillow; None when nothing here renders it."""
+        key = (path, colour)
+        if key in rendered:
+            return rendered[key]
+        file = (base / path).resolve()
+        target = work / f"p{len(rendered)}.png"
+        result: str | None = None
+        if file.suffix.lower() in (".png", ".jpg", ".jpeg"):
+            result = str(file)
+        elif file.suffix.lower() == ".svg":
+            markup = svg_inline(file, "r") or file.read_text(encoding="utf-8", errors="replace")
+            if "xmlns=" not in markup[:markup.find(">")]:
+                markup = markup.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"', 1)
+            source = work / f"p{len(rendered)}.svg"
+            source.write_text(markup.replace("currentColor", colour), encoding="utf-8")
+            for tool, command in (("rsvg-convert", ["-w", "600", "-o", str(target), str(source)]),
+                                  ("inkscape", [str(source), "--export-type=png", "--export-width=600", f"--export-filename={target}"]),
+                                  ("magick", ["-background", "none", "-density", "600", str(source), "-resize", "600x600", str(target)])):
+                if shutil.which(tool) and subprocess.run([tool, *command], capture_output=True, check=False).returncode == 0 and target.is_file():
+                    result = str(target)
+                    break
+        else:
+            try:
+                from PIL import Image
+                with Image.open(file) as image:
+                    image.convert("RGBA").save(target)
+                result = str(target)
+            except (ImportError, OSError):
+                result = None
+        if result is None:
+            sys.stderr.write(f"build_deck: pptx: {path} left out (no SVG renderer here: rsvg-convert, inkscape or magick)\n")
+        rendered[key] = result
+        return result
+
+    def place(slide: object, path: str, x: float, y: float, w: float, h: float, colour: str, cover: bool = False) -> None:
+        """A picture inside the box (contain, centered), or covering it (cropped); nothing when it cannot be rendered."""
+        file = raster(path, colour)
+        if not file:
+            return
+        pic = slide.shapes.add_picture(file, Inches(x), Inches(y))
+        pw, ph = pic.width / 914400, pic.height / 914400
+        if cover:
+            scale = max(w / pw, h / ph)
+            sw, sh = pw * scale, ph * scale
+            pic.crop_left = pic.crop_right = (sw - w) / 2 / sw
+            pic.crop_top = pic.crop_bottom = (sh - h) / 2 / sh
+            pic.left, pic.top, pic.width, pic.height = Inches(x), Inches(y), Inches(w), Inches(h)
+            return
+        scale = min(w / pw, h / ph)
+        pic.width, pic.height = Emu(int(Inches(pw * scale))), Emu(int(Inches(ph * scale)))
+        pic.left, pic.top = Emu(int(Inches(x + (w - pw * scale) / 2))), Emu(int(Inches(y + (h - ph * scale) / 2)))
+
     chapter = ""
     for number, spec in enumerate(deck["slides"], 1):
         kind = spec["kind"]
@@ -420,16 +578,29 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
         slide.background.fill.fore_color.rgb = rgb(own[0] if own and re.match(r"^#[0-9a-fA-F]{6}$", own[0]) else theme["bg"])
         upper = theme["head_transform"] == "uppercase"
         title = spec.get("title", "")
-        if theme.get("frame", "0") != "0":
+        full = kind == "image" and spec.get("full")
+        if theme.get("frame", "0") != "0" and not full:
             box(slide, 0.12, 0.12, W - 0.24, H - 0.24, None, theme["ink"])
-        if kind in ("title", "end"):
+        if full:
+            place(slide, spec["src"], 0, 0, W, H, theme["ink"], cover=True)
+            if title:
+                tall, wide = 1.05 + (0.5 if spec.get("lead") else 0), min(W - 2 * M, 9.0)
+                band = H - 0.7 - tall
+                box(slide, M - 0.1, band, wide, tall, theme["paper"], None)
+                box(slide, M - 0.1, band, 0.09, tall, theme["ink"])
+                text(slide, M + 0.15, band + 0.12, wide - 0.4, 0.8, [title], 34, theme["ink"], head, True, MSO_ANCHOR.TOP, upper)
+                if spec.get("lead"):
+                    text(slide, M + 0.15, band + 0.95, wide - 0.4, 0.5, [spec["lead"]], 18, theme["dim"])
+            if spec.get("credit"):
+                text(slide, W - 5.2, H - 0.42, 5.0, 0.3, [spec["credit"]], 10, theme["dim"])
+        elif kind in ("title", "end"):
             text(slide, M, 2.0, W - 2 * M, 1.6, [title or "Thank you"], 48, theme["ink"], head, True, MSO_ANCHOR.BOTTOM, upper)
             text(slide, M, 3.8, W - 2 * M, 1.2, [spec.get("subtitle", "")], 24, theme["dim"])
             extra = spec.get("meta", []) if kind == "title" else spec.get("links", [])
             if extra:
                 text(slide, M, 5.2, W - 2 * M, 1.6, [plain(e) for e in extra], 16, theme["ink"] if kind == "title" else theme["tx"])
             if kind == "end" and spec.get("src"):
-                slide.shapes.add_picture(str((base / spec["src"]).resolve()), Inches(W - 3.2), Inches(4.4), height=Inches(2.4))
+                place(slide, spec["src"], W - 3.2, 4.4, 2.4, 2.4, theme["tx"])
         elif kind == "section":
             text(slide, M, 2.4, 3, 0.6, [str(spec.get("number", ""))], 22, theme["ink2"], mono)
             text(slide, M, 3.0, W - 2 * M, 1.4, [title], 44, theme["ink"], head, True, MSO_ANCHOR.TOP, upper)
@@ -441,28 +612,72 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
             if spec.get("by"):
                 text(slide, M + 0.4, 4.8, W - 2 * M, 0.6, [spec["by"]], 18, theme["dim"])
         else:
-            text(slide, M, 0.45, W - 2 * M, 1.0, [title], 32, theme["ink"], head, True, MSO_ANCHOR.TOP, upper)
+            if title:
+                text(slide, M, 0.45, W - 2 * M, 1.0, [title], 32, theme["ink"], head, True, MSO_ANCHOR.TOP, upper)
             top = 1.55
             if spec.get("lead"):
                 text(slide, M, 1.4, W - 2 * M, 0.7, [spec["lead"]], 18, theme["dim"])
                 top = 2.15
             avail = H - top - 0.9
             if kind == "bullets":
-                paras: list = []
-                for item, subs in points(spec):
-                    paras.append("• " + item)
-                    paras.extend(("– " + s, 1) for s in subs)
-                text(slide, M, top, W - 2 * M, avail, paras, 22, theme["tx"])
+                listed = points(spec)
+                width = W - 2 * M
+                if spec.get("src"): # the picture beside the points
+                    width = (W - 2 * M) * 0.55
+                    place(slide, spec["src"], M + width + 0.4, top, W - 2 * M - width - 0.4, avail - (0.4 if spec.get("credit") else 0), theme["ink"])
+                    if spec.get("credit"):
+                        text(slide, M + width + 0.4, top + avail - 0.35, W - 2 * M - width - 0.4, 0.3, [spec["credit"]], 10, theme["dim"])
+                if any(icon for _, _, icon in listed): # one row per point: its icon, then its text
+                    rows = [1.0 + 0.45 * len(subs) for _, subs, _ in listed]
+                    scale = min(1.0, avail / max(0.1, sum(rows)))
+                    y = top + max(0.0, (avail - sum(rows) * scale) / 2) # centered under the title, as on the web page
+                    for (item, subs, icon), row in zip(listed, rows):
+                        if icon:
+                            place(slide, icon, M, y + 0.08, 0.72, 0.72, theme["ink"])
+                        text(slide, M + 1.05, y + 0.12, width - 1.05, row * scale, [item, *((s, 1) for s in subs)], 26, theme["tx"])
+                        y += row * scale
+                else:
+                    paras: list = []
+                    for item, subs, _ in listed:
+                        paras.append("• " + item)
+                        paras.extend(("– " + s, 1) for s in subs)
+                    side = bool(spec.get("src"))
+                    text(slide, M, top, width, avail, paras, 26 if side else 22, theme["tx"], None, False, MSO_ANCHOR.MIDDLE if side else MSO_ANCHOR.TOP)
             elif kind == "columns":
                 cols = spec.get("columns", [])
                 gap = 0.3
                 cw = (W - 2 * M - gap * (len(cols) - 1)) / max(1, len(cols))
-                for i, col in enumerate(cols):
+                lift = 1.1 if any(col.get("icon") for col in cols) else 0
+                heights = [min(avail, lift + 0.95 + 0.42 * sum(1 + len(p) // max(1, int(cw * 7.5)) for p in col.get("points", []))) for col in cols]
+                y = top + (max(0.0, (avail - max(heights, default=0)) / 2) if lift else 0)
+                for i, (col, height) in enumerate(zip(cols, heights)):
                     x = M + i * (cw + gap)
-                    height = min(avail, 0.95 + 0.42 * sum(1 + len(p) // max(1, int(cw * 7.5)) for p in col.get("points", [])))
-                    box(slide, x, top, cw, height, theme["paper"], theme["ink"])
-                    text(slide, x + 0.15, top + 0.1, cw - 0.3, 0.6, [col.get("head", "")], 20, theme["ink"], head, True)
-                    text(slide, x + 0.15, top + 0.75, cw - 0.3, height - 0.85, ["• " + p for p in col.get("points", [])], 17, theme["tx"])
+                    box(slide, x, y, cw, height, theme["paper"], theme["ink"])
+                    if col.get("icon"):
+                        place(slide, col["icon"], x + 0.2, y + 0.2, 0.9, 0.9, theme["ink"])
+                    text(slide, x + 0.15, y + 0.1 + lift, cw - 0.3, 0.6, [col.get("head", "")], 20, theme["ink"], head, True)
+                    if col.get("points"):
+                        text(slide, x + 0.15, y + 0.75 + lift, cw - 0.3, height - 0.85 - lift, ["• " + p for p in col["points"]], 17, theme["tx"])
+            elif kind == "grid":
+                cells = spec.get("items", [])
+                per_row = len(cells) if len(cells) <= 4 else 3 if len(cells) in (5, 6, 9) else 4
+                lines = (len(cells) + per_row - 1) // per_row
+                cw, ch = (W - 2 * M) / per_row, min(2.5, avail / max(1, lines))
+                size = min(1.55, ch - 0.75)
+                y0 = top + max(0.0, (avail - lines * ch) / 2)
+                for i, cell in enumerate(cells):
+                    x, y = M + (i % per_row) * cw, y0 + (i // per_row) * ch
+                    place(slide, cell["icon"], x + (cw - size) / 2, y, size, size, theme["ink"])
+                    if cell.get("label"):
+                        text(slide, x + 0.1, y + size + 0.12, cw - 0.2, 0.6, [cell["label"]], 20, theme["tx"], None, True).paragraphs[0].alignment = PP_ALIGN.CENTER
+            elif kind == "big":
+                stats = spec.get("items") or [{"value": spec.get("value"), "label": spec.get("label", "")}]
+                cw = (W - 2 * M) / len(stats)
+                for i, stat in enumerate(stats):
+                    frame = text(slide, M + i * cw, top + 0.5, cw, 2.0, [str(stat["value"])], 110 if len(stats) == 1 else 72, theme["ink"], head, True, MSO_ANCHOR.BOTTOM)
+                    frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+                    if stat.get("label"):
+                        text(slide, M + i * cw, top + 2.6, cw, 0.8, [stat["label"]], 22, theme["dim"]).paragraphs[0].alignment = PP_ALIGN.CENTER
             elif kind == "table":
                 headers, rows = spec.get("head", []), spec.get("rows", [])
                 shape = slide.shapes.add_table(len(rows) + 1, max(1, len(headers)), Inches(M), Inches(top), Inches(W - 2 * M), Inches(min(avail, 0.5 * (len(rows) + 1))))
@@ -494,13 +709,10 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
                 if spec.get("caption"):
                     text(slide, M, top + height + 0.1, W - 2 * M, 0.5, [spec["caption"]], 14, theme["dim"])
             elif kind == "image":
-                if spec.get("src"):
-                    pic = slide.shapes.add_picture(str((base / spec["src"]).resolve()), Inches(M), Inches(top))
-                    scale = min((W - 2 * M) / (pic.width / 914400), (avail - 0.4) / (pic.height / 914400))
-                    pic.width, pic.height = Emu(int(pic.width * scale)), Emu(int(pic.height * scale))
-                    pic.left = Emu(int((prs.slide_width - pic.width) / 2))
-                if spec.get("caption"):
-                    text(slide, M, H - 1.3, W - 2 * M, 0.5, [spec["caption"]], 14, theme["dim"])
+                place(slide, spec["src"], M, top, W - 2 * M, avail - 0.45, theme["ink"])
+                under = [s for s in (spec.get("caption"), spec.get("credit")) if s]
+                if under:
+                    text(slide, M, H - 1.3, W - 2 * M, 0.5, under, 14, theme["dim"]).paragraphs[0].alignment = PP_ALIGN.CENTER
             elif kind == "svg":
                 text(slide, M, top, W - 2 * M, 1.0, ["(drawing: see the web page or the PDF)"], 16, theme["dim"])
             elif kind == "steps":
@@ -508,25 +720,36 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
                 n = max(1, min(len(steps), 4))
                 gap = 0.25
                 cw = (W - 2 * M - gap * (n - 1)) / n
+                icons = any(step.get("icon") for step in steps)
+                y0 = top + (max(0.0, (avail - ((len(steps) + n - 1) // n) * 2.4) / 2) if icons else 0)
                 for i, step in enumerate(steps):
-                    x, y = M + (i % n) * (cw + gap), top + (i // n) * 2.4
+                    x, y = M + (i % n) * (cw + gap), y0 + (i // n) * 2.4
                     box(slide, x, y, cw, 2.2, theme["paper"], theme["ink"])
+                    if step.get("icon"):
+                        place(slide, step["icon"], x + (cw - 0.85) / 2, y + 0.2, 0.85, 0.85, theme["ink"])
+                        frame = text(slide, x + 0.12, y + 1.15, cw - 0.24, 0.5, [plain(step.get("head", ""))], 20, theme["ink"], head, True)
+                        frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+                        if step.get("text"):
+                            text(slide, x + 0.12, y + 1.65, cw - 0.24, 0.5, [step["text"]], 14, theme["tx"]).paragraphs[0].alignment = PP_ALIGN.CENTER
+                        continue
                     text(slide, x + 0.12, y + 0.08, cw - 0.24, 0.5, [f"{i + 1}. " + plain(step.get("head", ""))], 18, theme["ink"], head, True)
-                    text(slide, x + 0.12, y + 0.7, cw - 0.24, 1.4, [step.get("text", "")], 15, theme["tx"])
-        if kind not in ("title", "section", "end", "quote"):
+                    if step.get("text"):
+                        text(slide, x + 0.12, y + 0.7, cw - 0.24, 1.4, [step["text"]], 15, theme["tx"])
+        if kind not in ("title", "section", "end", "quote") and not full:
             text(slide, M, H - 0.55, W - 2 * M, 0.35, [f"{plain(deck.get('title', ''))}  ·  {chapter}  ·  {number}"], 10, theme["dim"])
         if spec.get("notes"):
             slide.notes_slide.notes_text_frame.text = plain(spec["notes"])
     prs.core_properties.title = plain(deck.get("title", ""))
     prs.core_properties.author = deck.get("author", "")
     prs.save(str(out))
+    shutil.rmtree(work, ignore_errors=True)
 
 # ======================================================================= notes
 def build_notes(deck: dict, out: Path) -> None:
     rows = [f"# {plain(deck.get('title', 'Presentation'))}: speaker notes", "",
             "What is said aloud and is not written on the slides. The numbers are the pages of the PDF and of the web page.", ""]
     for number, slide in enumerate(deck["slides"], 1):
-        label = plain(slide.get("title") or slide.get("text") or slide["kind"])
+        label = label_of(slide) or slide["kind"]
         rows += [f"## {number}. {label}", "", plain(slide.get("notes", "")) or "—", ""]
     out.write_text("\n".join(rows), encoding="utf-8")
 

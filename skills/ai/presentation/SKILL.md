@@ -1,8 +1,8 @@
 ---
 name: presentation
-description: Make a presentation from a plan or an idea - a time (given, or estimated and confirmed) sets the number of slides; the format (PDF, one-file animated HTML, PPTX, several or all) and the style (several proposals for the subject, "White blueprint" by default, or copied from a PPTX / PDF / HTML the user gives) are asked through interactive-questions. One deck.json gives every format plus speaker notes. Use for "fais une présentation / des slides / un ppt / un pdf de présentation".
+description: Make a presentation from a plan or an idea, with little text like a real talk - per slide a title saying the idea, one visual and a few key words (icons, logos, a big number, a picture beside the points, a full-slide photo, found on the web with their licence and credit), the sentences in the speaker notes; a time (given, or estimated and confirmed) sets the number of slides; the format (PDF, one-file animated HTML, PPTX, several or all) and the style (several proposals for the subject, "White blueprint" by default, or copied from a PPTX / PDF / HTML the user gives) are asked through interactive-questions. One deck.json gives every format plus speaker notes. Use for "fais une présentation / des slides / un ppt / un pdf de présentation".
 metadata:
-  summary: 'A presentation from a plan or an idea: the time (given, or estimated and confirmed) sets the number of slides, the format (PDF, one-file animated HTML, PPTX, several or all) and the style (proposals fitting the subject, `White blueprint` by default, or copied from a PPTX / PDF / HTML given) are asked through `interactive-questions`; one `deck.json` builds every format plus the speaker notes; checked with contact sheets and a selftest of the web page; `--canva` builds a PDF / PPTX that survives an import into Canva (one Canva font per role, no gradient background) and `check_deck.py --canva` reads the files back (text kept, fonts embedded)'
+  summary: 'A presentation from a plan or an idea, with little text like a real talk (per slide a title saying the idea, one visual and a few key words: icons, logos, big numbers, a picture beside the points or over the whole slide, found on the web by `images.py` with their licence and credit; `check_deck.py` warns on sentences, long leads, text alone): the time (given, or estimated and confirmed) sets the number of slides, the format (PDF, one-file animated HTML, PPTX, several or all) and the style (proposals fitting the subject, `White blueprint` by default, or copied from a PPTX / PDF / HTML given) are asked through `interactive-questions`; one `deck.json` builds every format plus the speaker notes; checked with contact sheets and a selftest of the web page; `--canva` builds a PDF / PPTX that survives an import into Canva (one Canva font per role, no gradient background) and `check_deck.py --canva` reads the files back (text kept, fonts embedded)'
 ---
 
 # Presentation (plan or idea -> slides in the formats asked)
@@ -107,16 +107,21 @@ slides are `#s1`, `#s2`... in the HTML / PDF: a `theme.css` can style one slide 
 |---|---|---|
 | `title` | `title`, `subtitle`, `meta` | first slide |
 | `section` | `number`, `title`, `lead` | a chapter starts |
-| `bullets` | `points`: text or `{text, sub}` | 3-5 short points, shown one by one |
-| `columns` | `columns`: `{head, points}` | compare 2-4 things |
+| `bullets` | `points`: text or `{text, icon, sub}`; `src` (+ `alt`, `credit`): a picture beside the points | 3-4 key words, an icon each, shown one by one |
+| `columns` | `columns`: `{head, icon, points}` | compare 2-4 things, a logo / icon each |
 | `table` | `head`, `rows` | real columns of data |
 | `code` | `code`, `lang`, `caption` | a command or a few lines (never a whole file) |
-| `steps` | `steps`: `{head, text}` | a path in 3-4 stages, revealed one by one |
-| `image` | `src` (relative path), `caption`, `alt` | a screenshot, a photo, a QR code |
+| `steps` | `steps`: `{head, icon, text}` | a path in 3-4 stages, revealed one by one (an icon each: no text needed) |
+| `grid` | `items`: `{icon, label}` (2-8) | the logos of the tools / products / partners, one by one |
+| `big` | `value` + `label` (or `items`: `{value, label}`, 2-3); `title` optional | the number to remember |
+| `image` | `src` (relative path), `caption`, `alt`, `credit`; `full: true` = the picture covers the slide, the title on a band | a screenshot, a photo, a QR code |
 | `svg` | `svg`, `caption` | a diagram drawn inline (`currentColor` = the text colour, `<g style="color:var(--ink)">` for the accent, no fixed colour; the PDF resolves them from the theme); HTML / PDF only. The field is raw markup: an HTML block (a mock-up, a QR card, a custom layout) works too, and its `data-s="1"`, `"2"`... are revealed one by one like the points |
 | `quote` | `text`, `by` | the sentence to remember |
 | `end` | `title`, `subtitle`, `links`, `src` | last slide: questions, links, QR code |
-Text accepts `` `code` `` and `**bold**`.
+Text accepts `` `code` `` and `**bold**`. An `icon` / `src` is a file of the deck folder (`img/x.svg`, section 4b): an SVG
+is put inline and takes the accent of the theme (one-colour icons and logos; an SVG with its own colours keeps them), a
+PNG / JPEG stays as it is; the PPTX gets the SVG rendered to PNG (`rsvg-convert`, `inkscape` or `magick`). A slide with
+icons, logos or a picture beside its points is laid out bigger and centered under its title.
 
 Colours in inline SVG (the bugs met, the builder fixes the first, `check_deck.py` warns on the others):
 - A theme colour goes in `style`, never in a presentation attribute: `style="fill:var(--paper)"`, not
@@ -126,28 +131,74 @@ Colours in inline SVG (the bugs met, the builder fixes the first, `check_deck.py
 - A point on a curve (a station on a line) is computed from the curve (`B(t)` of the cubic, or a segment end), never
   placed by eye.
 
-How a good deck is written (taken from the user's earlier decks and their remarks):
-- **Less text, more visual**: a diagram, a table, steps, a command instead of a paragraph; what is said aloud goes in
-  `notes`, not on the slide. At most 5-6 points per slide, 60 words, one idea per slide.
-- Titles say the idea ("Un Makefile qui lance CMake"), not the topic ("Makefile").
+How a good deck is written - **little text, like a real talk** (the user's rule: the slide shows, the speaker says):
+- A content slide = a **title that says the idea** ("Un Makefile qui lance CMake", not "Makefile") + **one visual** + at
+  most 3-4 key words. Every sentence (the explanation, the detail, the example told, the transition) goes in `notes`.
+- A point is 1-5 words, no sentence, no final dot; 3-4 points (5 at most), one idea per slide; `sub` only when the
+  point is wrong without it.
+- No description unless it is useful: `lead`, `caption`, a step's `text`, a `label` are left out by default, and
+  written only when they say what the title and the picture cannot (a unit, a condition, a source).
+- A visual on every content slide, never two slides of text alone in a row; the content picks it:
+
+  | The content | Slide |
+  |---|---|
+  | a number, a result, a gain | `big` (one figure, or 2-3 `items`) |
+  | tools, languages, products, partners | `grid` of their logos |
+  | two or three things compared | `columns`, a logo / icon per column |
+  | a path, a process | `steps`, an icon per step, no text under |
+  | a few ideas | `bullets`, an icon per point, or beside a picture (`src`) |
+  | a story, a chapter, a place, a product | `image` with `full`: the photo covers the slide, the title on it |
+  | how it works | `svg` (a diagram) or a screenshot (`image`) |
+  | data, commands | `table`, `code` |
+- The real thing first (a screenshot of the project, its logo, a photo of it), then a diagram, then a photo found
+  online, then an icon. One icon set per deck (Lucide; Tabler where Lucide has none).
 - Examples from the user's real projects and real commands, tested when they can be run.
 - A chapter order that answers the questions of someone new, in order; a recap or a quiz slide when the talk is a course.
-- The PDF is read without the speaker: it must be understandable alone, the HTML is for presenting.
+- The PDF can be sent without the speaker: the titles carry the message and the notes file goes with it. A document
+  to read rather than a talk (a handout, a report): say that the leads come back, or that `report` fits better.
 - A link worth keeping goes with a QR code image on the last slide (`image` / `end` with `src`).
-- No emoji, no decoration without meaning, nothing that moves unless it reveals the next point.
+- No emoji, no decoration without meaning (a picture that says nothing about the point is decoration), nothing that
+  moves unless it reveals the next point.
+
+## 4b. Pictures: icons, logos, photos from the web
+`images.py` puts them in `<deck>/img/` (next to `deck.json`), checks each one (a real picture, not too big; WebP / GIF /
+AVIF converted) and writes `img/CREDITS.md` (source, author, licence; the licence texts of the icon sets in `img/licenses/`):
+```bash
+python3 SKILL_DIR/scripts/images.py icon si:cmake si:github lucide:rocket -o <deck>/img   # logos and icons (SVG)
+python3 SKILL_DIR/scripts/images.py search "rocket launch" --commercial --sheet /tmp/pick.png
+python3 SKILL_DIR/scripts/images.py get openverse:<id> -o <deck>/img --name launch       # + its credit
+python3 SKILL_DIR/scripts/images.py get <https address of the file> -o <deck>/img --license "CC BY 4.0" --author X --page <page>
+```
+- **Logos** of every tool, language, product or company named: Simple Icons first (`si:<slug>`: the name in lower
+  case, `+` = `plus`, `.` = `dot`: `cplusplus`, `nodedotjs`; one colour = the theme accent, `--brand` = the official
+  colour); missing there: the official logo (press kit, brand page, Wikimedia Commons; WebSearch `<name> logo svg`)
+  through `get`. A logo only names what it stands for: never distorted, never shown as the deck's own brand.
+- **Icons** for ideas: Lucide (`lucide:<name>`, names on lucide.dev/icons), Tabler (`tabler:<name>`) when Lucide has none.
+- **Photos**: `search` (Openverse: Flickr, Wikimedia Commons, museums; English words; `--commercial` leaves out the NC
+  licences, for a talk that is sold or made for a client) and LOOK at the `--sheet` (Read) to choose; or a page found
+  with WebSearch whose licence is read on the page itself (Wikimedia Commons, Unsplash, Pexels, an official media kit),
+  then `get` with that licence. Never a picture whose licence is unknown, never an AI picture of a real person, place
+  or product shown as real.
+- Read (look at) every picture downloaded before it goes in a slide: the right subject, sharp, no watermark.
+- A licence that asks for a credit (CC BY, BY-SA): `"credit": "Photo: NASA, CC BY 2.0"` on the slide (`images.py`
+  prints it); `img/CREDITS.md` goes with the deck.
+- No network (claude.ai without the web, an offline machine): draw it (`svg`), or ask the user for their files.
 
 ## 5. Build and check
 ```bash
 python3 SKILL_DIR/scripts/build_deck.py deck.json -o <folder> --formats html,pdf,pptx,notes [--theme NAME | --theme-file F]
 python3 SKILL_DIR/scripts/check_deck.py deck.json --dir <folder> [--sheets <tmpdir>]
 ```
-- `check_deck.py`: the pace (content slides per minute against `duration`), too many points / words, missing notes or
-  images, the number of PDF pages; then **contact sheets** (PNG of every page of the PDF and of the PPTX rendered by
+- `check_deck.py`: the pace (content slides per minute against `duration`), the little-text rules (a point of more
+  than 7 words, a title of more than 9, a lead / caption / label of more than 12, more than 5 points or 40 words, sub-points,
+  two slides of text alone in a row: each WARN is fixed, or said to the user when it is wanted), missing notes or
+  pictures, the number of PDF pages; then **contact sheets** (PNG of every page of the PDF and of the PPTX rendered by
   LibreOffice) and the **selftest** of the web page (headless Firefox: text out of the slide, hidden by the bar, clipped,
   the keys). Open the PNGs (Read) and LOOK: a slide that overflows, a table too wide, a title on four lines, black on
   black. Fix the JSON (split the slide, shorten) and build again. Put the PNGs in /tmp, not in the folder delivered.
 - The web page keys: arrows / space (next step), Home / End, `O` (outline: chapter cards, the current slide marked, close with the cross or Esc; `?map` in the address opens it), `F` (full screen), `N` (notes), `H` (hide / show the bottom bar), swipe.
-- Tools: `weasyprint` (PDF), `python-pptx` (PPTX), `firefox`, `pdftoppm`, `soffice` (checks). A missing one is said with
+- Tools: `weasyprint` (PDF), `python-pptx` (PPTX), `rsvg-convert` / `inkscape` / `magick` (SVG icons in the PPTX),
+  `Pillow` (`images.py`, sheets), `firefox`, `pdftoppm`, `soffice` (checks). A missing one is said with
   its install command; ask before installing (`pip install --user python-pptx`, `sudo dnf install python3-python-pptx`).
 
 ## 5b. Import into Canva (PDF or PPTX)
@@ -171,8 +222,9 @@ python3 SKILL_DIR/scripts/check_deck.py deck.json --dir <folder> --canva
 
 ## 6. Deliver
 - Folder: the one the user names, otherwise `presentation/<name>/` at the root of the current repository (or of the
-  current folder): `deck.json`, `<name>.html`, `<name>.pdf`, `<name>.pptx`, `<name>-notes.md`, the images used.
-- Tell in French: the files, the time and number of slides, the style, what was not verified (a command not run, a
-  figure to check), and what the PPTX does not carry (animations, inline drawings: give an `image` for those), and for a Canva import that the
+  current folder): `deck.json`, `<name>.html`, `<name>.pdf`, `<name>.pptx`, `<name>-notes.md`, `img/` (the pictures and
+  `CREDITS.md`).
+- Tell in French: the files, the time and number of slides, the style, the pictures taken from the web and their
+  licences (the credits put on the slides), what was not verified (a command not run, a figure to check), and what the PPTX does not carry (animations, inline drawings: give an `image` for those), and for a Canva import that the
   import itself was not tried.
 - A change asked afterwards ("plus court", "autre style"): edit `deck.json`, rebuild, no rewrite.

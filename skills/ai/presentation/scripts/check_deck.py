@@ -3,7 +3,8 @@
 
     python3 check_deck.py deck.json [--dir OUTDIR] [--sheets SHEETDIR] [--canva]
 
-- deck.json: slides per minute (the pace), points per slide, words per slide, missing notes / titles / images.
+- deck.json: slides per minute (the pace), then little text: points per slide, words per point / slide / title / lead,
+  sub-points, a picture on most slides (never text alone twice in a row), missing notes / pictures.
 - <name>.pdf: pages = slides, then a contact sheet PNG (pdftoppm + Pillow) of every page.
 - <name>.pptx: rendered to PDF with LibreOffice (soffice) when installed, then a contact sheet too.
 - <name>.html: the built-in selftest of the web page (?selftest) in headless Firefox: a screenshot with
@@ -21,18 +22,47 @@ import unicodedata
 from pathlib import Path
 
 PER_MINUTE = (0.5, 1.0)  # content slides per minute: below = slow, above = rushed
-MAX_POINTS, MAX_WORDS = 6, 60
+MAX_POINTS, MAX_ITEMS, MAX_WORDS = 5, 8, 40  # points / columns / steps of a slide, logos of a grid, words on a content slide
+POINT_WORDS, LINE_WORDS, TITLE_WORDS = 7, 12, 9  # a point = a few words; a lead / caption / step text / label = one short line
+NOT_TEXT = ("notes", "svg", "kind", "chapter", "bg", "icon", "src", "alt", "full", "credit", "lang", "code")  # not read on the slide
+STATEMENT = ("image", "svg", "table", "code", "grid", "big", "quote")  # kinds that are a visual (or a statement) by themselves
 
 def slug(text: str) -> str:
     """The file name build_deck.py gives the outputs (same rule: accents dropped, then non letters as '-')."""
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-") or "deck"
 
+def count(text: object) -> int:
+    return len(re.findall(r"[\w'-]+", re.sub(r"\*\*|`", "", str(text))))
+
+def visible(value: object, skip: tuple = NOT_TEXT) -> list[str]:
+    """Every text a slide shows (its notes, pictures and settings left out)."""
+    if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+        return [str(value)]
+    if isinstance(value, list):
+        return [text for item in value for text in visible(item, skip)]
+    if isinstance(value, dict):
+        return [text for key, item in value.items() if key not in skip for text in visible(item, skip)]
+    return []
+
 def words(slide: dict) -> int:
-    text = json.dumps({k: v for k, v in slide.items() if k not in ("notes", "svg", "kind", "chapter", "bg")}, ensure_ascii=False)
-    return len(re.findall(r"[\w'-]+", re.sub(r'"[a-z_]+":', " ", text)))
+    return sum(count(text) for text in visible(slide))
+
+def pictures(slide: dict) -> list[str]:
+    """The files a slide uses: its src and the icons of its points, columns, steps and grid items."""
+    parts = [p for key in ("points", "columns", "steps", "items") for p in slide.get(key, []) if isinstance(p, dict)]
+    return [path for path in [slide.get("src", ""), *(p.get("icon", "") for p in parts)] if path]
+
+def has_visual(slide: dict) -> bool:
+    return slide["kind"] in STATEMENT or bool(pictures(slide))
+
+def short(where: str, what: str, text: object, limit: int, advice: str) -> None:
+    if count(text) > limit:
+        print(f"WARN {where}: {what} {str(text)[:40]!r} has {count(text)} words: {advice}")
 
 def lint(deck: dict, base: Path) -> int:
+    """The pace, then the rules of a deck with little text: a few words per point, one short line for a lead or a
+    caption, a picture on most slides (never two slides of text alone in a row), notes for what is said."""
     errors = 0
     slides = deck["slides"]
     content = [s for s in slides if s["kind"] not in ("title", "section", "end")]
@@ -42,23 +72,51 @@ def lint(deck: dict, base: Path) -> int:
         rate = len(content) / minutes
         verdict = "ok" if PER_MINUTE[0] <= rate <= PER_MINUTE[1] else ("too few slides for the time" if rate < PER_MINUTE[0] else "too many slides for the time")
         print(f"pace: {len(content)} content slides in {minutes} min = {rate:.2f} per minute -> {verdict}")
+    run: list[int] = []  # content slides of text alone, one after the other
     for number, slide in enumerate(slides, 1):
-        where = f"slide {number} ({slide['kind']} {slide.get('title', '')[:30]!r})"
-        count = len(slide.get("points", [])) + len(slide.get("columns", [])) + len(slide.get("steps", []))
-        if count > MAX_POINTS:
-            print(f"WARN {where}: {count} points, split it")
-        if words(slide) > MAX_WORDS and slide["kind"] in ("bullets", "columns", "steps"):
-            print(f"WARN {where}: {words(slide)} words, move the detail to the notes")
-        if slide["kind"] not in ("title", "section", "end", "quote") and not slide.get("notes"):
+        kind = slide["kind"]
+        where = f"slide {number} ({kind} {str(slide.get('title', slide.get('value', '')))[:30]!r})"
+        parts = len(slide.get("points", [])) + len(slide.get("columns", [])) + len(slide.get("steps", []))
+        if parts > MAX_POINTS:
+            print(f"WARN {where}: {parts} points, split it (3 or 4 read best)")
+        if kind == "grid" and len(slide.get("items", [])) > MAX_ITEMS:
+            print(f"WARN {where}: {len(slide['items'])} logos, keep the {MAX_ITEMS} that matter")
+        if kind in ("bullets", "columns", "steps", "grid", "big", "image") and words(slide) > MAX_WORDS:
+            print(f"WARN {where}: {words(slide)} words on the slide: keep the key words, the sentences go to the notes")
+        if kind not in ("title", "section", "end"):
+            short(where, "the title", slide.get("title", ""), TITLE_WORDS, "the idea in a few words")
+        for key in ("lead", "caption", "label"):
+            short(where, f"the {key}", slide.get(key, ""), LINE_WORDS, "one short line or nothing (the notes say it)")
+        subs = 0
+        for point in slide.get("points", []):
+            text = point if isinstance(point, str) else point.get("text", "")
+            short(where, "a point", text, POINT_WORDS, "a few words, the sentence goes to the notes")
+            subs += 0 if isinstance(point, str) else len(point.get("sub", []))
+        for column in slide.get("columns", []):
+            for text in column.get("points", []) if isinstance(column, dict) else []:
+                short(where, "a point", text, POINT_WORDS, "a few words, the sentence goes to the notes")
+        for item in slide.get("steps", []) + slide.get("items", []):
+            if isinstance(item, dict):
+                short(where, "a text", item.get("text", item.get("label", "")), LINE_WORDS, "one short line or nothing")
+        if subs > 2:
+            print(f"WARN {where}: {subs} sub-points: the detail goes to the notes unless the slide is wrong without it")
+        if kind not in ("title", "section", "end"):
+            run = [] if has_visual(slide) else run + [number]
+            if len(run) == 2:
+                print(f"WARN slides {run[0]}-{run[1]}: text alone twice in a row: give one an icon per point, a picture (src) or a diagram")
+        if kind not in ("title", "section", "end", "quote") and not slide.get("notes"):
             print(f"WARN {where}: no notes (what is said aloud)")
         svg = slide.get("svg", "")
         if re.search(r"<text\b[^>]*\sopacity=", svg):
             print(f"WARN {where}: opacity on an SVG <text>: the PDF engine cuts or shifts the text, give it a dim fill instead")
         if re.search(r"<[a-zA-Z][^<>]*\sstyle=\"[^\"]*\"[^<>]*\sstyle=", svg):
             print(f"WARN {where}: two style attributes on one SVG tag (build_deck merges them, merge them in deck.json)")
-        if slide["kind"] in ("image", "end") and slide.get("src") and not (base / slide["src"]).is_file():
-            print(f"ERROR {where}: image {slide['src']} not found")
-            errors += 1
+        for path in pictures(slide):
+            if not (base / path).is_file():
+                print(f"ERROR {where}: picture {path} not found")
+                errors += 1
+    with_visual = sum(1 for s in content if has_visual(s))
+    print(f"visuals: {with_visual} of {len(content)} content slides (pictures, icons, logos, diagrams, tables, code, numbers)")
     return errors
 
 def squash(text: str) -> str:
@@ -76,7 +134,7 @@ def strings_of(slide: dict) -> list[str]:
                 walk(item)
         elif isinstance(value, dict):
             for key, item in value.items():
-                if key not in ("notes", "svg", "kind", "chapter", "src", "alt", "lang"):
+                if key not in ("notes", "svg", "kind", "chapter", "src", "alt", "lang", "icon"):
                     walk(item)
 
     walk({k: v for k, v in slide.items() if k != "notes"})
@@ -114,7 +172,7 @@ def canva_pdf(deck: dict, pdf: Path, allowed: list[str]) -> int:
         if missing:
             print(f"ERROR canva pdf: page {number} misses text {missing[0][:50]!r}" + (f" (+{len(missing) - 1})" if len(missing) > 1 else "") + " (not real text, or cut in pieces)")
             errors += 1
-        if slide["kind"] not in ("image", "end") and per_page.get(number):
+        if slide["kind"] not in ("image", "end") and not pictures(slide) and per_page.get(number):
             print(f"WARN canva pdf: page {number} holds {per_page[number]} picture(s) (a background or text turned into an image)")
     return errors
 

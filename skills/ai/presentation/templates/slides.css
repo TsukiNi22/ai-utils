@@ -39,6 +39,41 @@ body { color: var(--tx); font-family: var(--font); background: var(--bg); margin
 .flow > li::before { content: counter(step); display: inline-block; width: 38px; height: 38px; line-height: 38px; text-align: center; border-radius: 50%; background: var(--ink); color: var(--paper); font-weight: 700; margin-bottom: 8px; }
 .flow h3 { font-size: 30px; } .flow p { font-size: 26px; color: var(--tx); margin: 0; }
 .ok { color: var(--ok); } .bad { color: var(--warn); }
+
+/* pictures: icons and logos (an inline SVG takes the accent), a picture beside the points, a photo over the whole slide */
+.ic { display: inline-flex; flex: none; width: 1.6em; height: 1.6em; align-items: center; justify-content: center; color: var(--ink); }
+.ic svg, .ic img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.slide ul.icons { list-style: none; padding-left: 0; } .slide ul.icons > li { display: flex; align-items: center; gap: 24px; margin-bottom: 22px; }
+.slide ul.icons > li > .ic { width: 64px; height: 64px; } .slide ul.icons .pt { min-width: 0; }
+.col > .ic { width: 76px; height: 76px; margin-bottom: 12px; }
+.flow > li.has-ic::before { display: none; } .flow > li > .ic { width: 60px; height: 60px; margin-bottom: 10px; }
+.slide ul.grid { list-style: none; padding: 0; margin-top: 34px; display: grid; gap: 40px 28px; grid-template-columns: repeat(var(--n, 4), 1fr); }
+.slide ul.grid > li { margin: 0; display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; }
+.grid > li > .ic { width: 124px; height: 124px; margin-bottom: 16px; } .grid .lbl { font-size: 28px; font-weight: 700; color: var(--tx); overflow-wrap: anywhere; }
+.k-big { display: flex; flex-direction: column; justify-content: center; text-align: center; }
+.stats { display: grid; gap: 40px; grid-template-columns: repeat(var(--n, 1), 1fr); align-items: start; }
+.stat { min-width: 0; } .stat .v { font-family: var(--head-font); font-weight: 700; color: var(--ink); font-size: 120px; line-height: 1; overflow-wrap: anywhere; }
+.stats.one .v { font-size: 190px; } .stat .l { font-size: 34px; color: var(--dim); margin: 14px 0 0; }
+.pic { display: flex; align-items: center; justify-content: center; width: 100%; height: 470px; }
+.pic svg { width: 100%; height: 100%; color: var(--ink); } .pic img { max-width: 100%; max-height: 100%; }
+.split { display: grid; gap: 44px; grid-template-columns: 1.2fr 1fr; align-items: center; } .split .side { min-width: 0; }
+.credit { display: block; font-size: 15px; color: var(--dim); margin-top: 6px; text-align: right; }
+.slide.full { padding: 0; } .full .foot { display: none; }
+.full > figure.bleed { position: absolute; inset: 0; } .bleed .pic { height: 100%; } .bleed .pic img { width: 100%; height: 100%; max-width: none; max-height: none; object-fit: cover; }
+.full .band { position: absolute; left: 56px; bottom: 56px; max-width: 860px; background: var(--paper); border-left: 8px solid var(--ink); padding: 18px 30px; z-index: 2; }
+.full .band h2 { font-size: 50px; margin: 0; } .full .band .lead { font-size: 26px; margin: 8px 0 0; }
+.full > .credit { position: absolute; right: 16px; bottom: 12px; margin: 0; padding: 3px 10px; background: var(--paper); z-index: 2; }
+.js .full .band { bottom: 86px; } .js .full > .credit { bottom: 70px; } /* above the bar of the web page (the photo itself may go under it) */
+html.nohud .full .band { bottom: 56px; } html.nohud .full > .credit { bottom: 12px; }
+/* a slide carried by its pictures (class v: icons, logos, a picture beside the points): bigger, centered under its title */
+.slide.v { display: flex; flex-direction: column; }
+.slide.v > .mid { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+.slide.v .cols, .slide.v .flow, .slide.v .grid, .slide.v .split, .stats { align-content: center; } /* a grid made taller keeps its rows in the middle */
+.slide.v ul.icons { font-size: 40px; } .slide.v ul.icons > li { gap: 30px; margin-bottom: 30px; } .slide.v ul.icons > li > .ic { width: 84px; height: 84px; }
+.slide.v .split .side { font-size: 38px; } .slide.v .col > .ic { width: 100px; height: 100px; }
+.slide.v .flow > li.has-ic { text-align: center; padding: 30px 20px 26px; } .slide.v .flow > li.has-ic > .ic { display: flex; width: 100px; height: 100px; margin: 0 auto 18px; }
+.slide.v .flow > li.has-ic h3 { font-size: 38px; margin: 0; } .slide.v .flow > li.has-ic p { margin-top: 8px; }
+.slide.v ul.grid > li > .ic { width: 150px; height: 150px; } .slide.v ul.grid.many > li > .ic { width: 110px; height: 110px; } .slide.v .grid .lbl { font-size: 32px; }
 .foot { position: absolute; left: 64px; right: 64px; bottom: 76px; display: flex; justify-content: space-between; font-size: 15px; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; z-index: 1; }
 .cartouche .foot { border-top: 1.5px solid var(--ink); padding-top: 6px; }
 html.nohud .foot { bottom: 22px; } .js .foot { transition: bottom .3s; } /* bar hidden (H): the footer goes down to the bottom, as in print */
@@ -86,7 +121,8 @@ html.noanim .slide > h1, html.noanim .slide > h2 { animation: none !important; }
 .portrait #chapters button:not(.cur) { display: none; } .portrait #chapters .more { display: none; } .portrait #steps { display: none; } .portrait #count { margin-left: auto; }
 .portrait .slide { padding: 28px 30px 84px; font-size: 24px; } .portrait .slide h1 { font-size: 52px; } .portrait .slide h2 { font-size: 38px; }
 .portrait .mapgrid { padding: 1em; grid-template-columns: 1fr; } .portrait .maphead { padding: .8em 1em; } .portrait .maphint { display: none; }
-.portrait .cols, .portrait .flow { grid-template-columns: 1fr; }
+.portrait .cols, .portrait .flow, .portrait .split, .portrait .stats { grid-template-columns: 1fr; } .portrait .slide ul.grid { grid-template-columns: repeat(2, 1fr); }
+.portrait .split figure .pic { height: 260px !important; } .portrait .stats.one .v { font-size: 120px; }
 
 /* the same slides, printed (WeasyPrint): one 16:9 page per slide, every step shown */
 .print .slide { opacity: 1; transform: none; visibility: visible; width: 1280px; height: 720px; overflow: hidden; page-break-after: always; break-after: page; }
