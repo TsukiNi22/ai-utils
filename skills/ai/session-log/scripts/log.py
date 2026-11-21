@@ -5,7 +5,7 @@
     log.py send TEXT [--kind step|done|info|question|error] [--file PATH]... [--link URL]
     log.py status TEXT                  # the live status (one Discord message edited in place)
     log.py stop [SINK_ID|all] [--text TEXT]
-    log.py list
+    log.py list | clear                 # clear: delete the Discord messages this log posted
     log.py hooks install|uninstall|show [--settings FILE]
     log.py hook                         # what the Claude Code hooks call (event JSON on stdin)
 
@@ -60,13 +60,13 @@ IMAGE = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 API_FORMATS = ("json", "slack", "ntfy", "gotify", "telegram", "text")
 URGENT = ("question", "waiting", "error")  # a higher priority where the destination has one (ntfy, Gotify)
 LABELS = {
-    "fr": {"start": "Log démarré", "stop": "Log arrêté", "request": "Demande reçue", "step": "Étape", "done": "Terminé",
+    "fr": {"start": "Connexion établie", "restart": "Connexion rétablie", "stop": "Fin du log", "request": "Demande reçue", "step": "Étape", "done": "Terminé",
            "question": "Question en attente", "waiting": "En attente", "error": "Erreur", "turn": "Fin de tour", "file": "Fichier",
            "info": "Info", "status": "Statut", "steps": "Étapes", "errors": "Erreurs", "files": "Fichiers", "last": "Dernière activité",
            "started_at": "Démarré", "duration": "Durée", "folder": "Dossier", "level": "Niveau", "targets": "Cibles",
            "more_errors": "autres erreurs", "too_big": "trop gros pour être joint", "open": "Ouvrir",
            "working": "En cours", "waiting_you": "En attente de toi", "stopped": "Arrêté", "answer": "Réponds dans la session"},
-    "en": {"start": "Log started", "stop": "Log stopped", "request": "Request received", "step": "Step", "done": "Done",
+    "en": {"start": "Connected", "restart": "Reconnected", "stop": "Log ended", "request": "Request received", "step": "Step", "done": "Done",
            "question": "Question waiting", "waiting": "Waiting", "error": "Error", "turn": "End of turn", "file": "File",
            "info": "Info", "status": "Status", "steps": "Steps", "errors": "Errors", "files": "Files", "last": "Last activity",
            "started_at": "Started", "duration": "Duration", "folder": "Folder", "level": "Level", "targets": "Targets",
@@ -232,6 +232,31 @@ def file_info(path: str) -> dict:
         return {"name": file.name, "path": path, "missing": True}
     return {"name": file.name, "path": str(file), "size": file.stat().st_size, "sha256": hashlib.sha256(file.read_bytes()).hexdigest()}
 
+def hook_id(sink: dict) -> str:
+    return re.search(r"/webhooks/(\d+)/", sink["url"]).group(1)
+
+def threads(update: tuple[str, str, dict] | None = None) -> dict:
+    """The thread and the status message of each session per webhook (~/.local/state/session-log/threads.json, kept
+    after a stop): a log started again in the same session writes in the same thread and edits the same status."""
+    file = STATE / "threads.json"
+    with Locked(STATE / "threads.lock"):
+        known = json.loads(file.read_text(encoding="utf-8")) if file.is_file() else {}
+        if update:
+            webhook, session, fields = update
+            known.setdefault(webhook, {}).setdefault(session, {}).update({**fields, "time": time.time()})
+            file.write_text(json.dumps(known, indent=1), encoding="utf-8")
+            file.chmod(0o600)
+    return known
+
+def remember(base: Path, sinks: list[dict]) -> None:
+    """Keep the id of each Discord message posted (posted.jsonl, 0600: it holds the webhook) for `log.py clear`."""
+    lines = [json.dumps({"hook": s["url"], "id": i, "thread": th}) for s in sinks for i, th in s.pop("posted", [])]
+    if lines:
+        file = base / "posted.jsonl"
+        with open(file, "a", encoding="utf-8") as out:
+            out.write("\n".join(lines) + "\n")
+        file.chmod(0o600)
+
 def discord_url(sink: dict, extra: str = "", **params: str) -> str:
     query = {k: v for k, v in params.items() if v}
     if sink.get("thread_id"):
@@ -328,24 +353,41 @@ def discord(sink: dict, event: dict, config: dict, words: dict, status: dict | N
         target = mention.split(":", 1)[1] if role else mention
         payload["content"] = f"<@&{target}>" if role else f"<@{target}>"
         payload["allowed_mentions"] = {"roles": [target]} if role else {"users": [target]}
-    first = not sink.get("started") and not sink.get("thread_id") and sink["options"].get("thread") != "no"
-    if first:
-        payload["thread_name"] = config["name"][:100]
-
     def body() -> tuple[bytes, str]:
         return multipart({"payload_json": json.dumps(payload)}, files, "files") if files else (json.dumps(payload).encode(), "application/json")
 
-    try:
-        answer = request("POST", discord_url(sink, wait="true"), *body())
-    except RuntimeError as error:
-        if not first or "HTTP 400" not in str(error):
-            raise
-        payload.pop("thread_name")  # a text channel: no thread from a webhook (only a forum channel makes one)
-        sink["options"]["thread"] = "no"
-        answer = request("POST", discord_url(sink, wait="true"), *body())
-    if first and "thread_name" in payload and answer.get("channel_id"):
-        sink["thread_id"] = answer["channel_id"]
+    answer: dict = {}
+    if sink.get("thread_id"):  # the thread of this session (reused, or given with #thread=<id>)
+        try:
+            answer = request("POST", discord_url(sink, wait="true"), *body())
+        except RuntimeError as error:
+            if not re.search(r"HTTP (400|403|404)", str(error)):
+                raise
+            sink.pop("thread_id")  # deleted, locked or not in this channel: a new one below
+            sink["thread_state"] = "lost"
+    if not sink.get("thread_id"):
+        create = sink["options"].get("thread", "") not in ("no", "none") and sink.get("thread_state") != "text-channel"
+        if create:
+            payload["thread_name"] = thread_name(config)
+        try:
+            answer = request("POST", discord_url(sink, wait="true"), *body())
+        except RuntimeError as error:
+            if not create or "220003" not in str(error):
+                raise
+            payload.pop("thread_name")  # a text channel: a webhook makes threads in a forum channel only
+            sink["thread_state"] = "text-channel"
+            answer = request("POST", discord_url(sink, wait="true"), *body())
+        if create and "thread_name" in payload and answer.get("channel_id"):
+            sink["thread_id"], sink["thread_state"] = answer["channel_id"], "new"
+            threads((hook_id(sink), config["session"], {"thread": answer["channel_id"], "status": None}))
+    if answer.get("id"):
+        sink.setdefault("posted", []).append((answer["id"], sink.get("thread_id")))
     sink["started"] = True
+
+def thread_name(config: dict) -> str:
+    """The name of the thread: the session name, with the short session id when the name does not have it."""
+    short = config["session"][:8]
+    return (config["name"] if short in config["name"] else f"{config['name']} · {short}")[:100]
 
 def discord_status(sink: dict, status: dict, config: dict, words: dict) -> None:
     """The live status, one message edited in place (posted again when deleted): the state (working, waiting for the
@@ -381,6 +423,7 @@ def discord_status(sink: dict, status: dict, config: dict, words: dict) -> None:
                 raise
     payload = {"username": f"Claude · {config['name']}"[:80], "embeds": [embed], "allowed_mentions": {"parse": []}, **avatar(sink)}
     sink["status_id"] = request("POST", discord_url(sink, wait="true"), *body(payload)).get("id")
+    sink.setdefault("posted", []).append((sink["status_id"], sink.get("thread_id")))
 
 def facts(sink: dict, event: dict, config: dict, status: dict | None) -> dict:
     """What every format shows of an event, computed once: icon, label, text, progress of a "n/m" step, choices of a
@@ -665,13 +708,17 @@ def process(base: Path, event: dict) -> None:
         except (RuntimeError, OSError, ValueError) as error:
             note_error(base, sink["id"], f"{kind}: {error}")
     status_file.write_text(json.dumps(status), encoding="utf-8")
+    remember(base, [s for s in config["sinks"] if s["kind"] == "discord"])
+    for sink in config["sinks"]:
+        if sink["kind"] == "discord" and sink.get("thread_id") and sink.get("status_id"):
+            threads((hook_id(sink), config["session"], {"thread": sink["thread_id"], "status": sink["status_id"]}))
     with Locked(base / "config.lock"):
         current = load(base)
         if not current:
             return
         by_id = {s["id"]: s for s in config["sinks"]}
         for sink in current["sinks"]:  # what the delivery learned: the thread, the status message
-            for key in ("thread_id", "status_id", "started"):
+            for key in ("thread_id", "status_id", "started", "thread_state"):
                 if key in by_id.get(sink["id"], {}):
                     sink[key] = by_id[sink["id"]][key]
             if by_id.get(sink["id"], {}).get("options", {}).get("thread") == "no":
@@ -826,14 +873,27 @@ def start(args: argparse.Namespace, session: str) -> None:
         config["sinks"] += new
         save(base, config)
     event = {"kind": "start", "time": time.time(), "text": f"{config['name']} · {config['cwd']}" + (f"\n{args.text}" if args.text else "")}
+    words = LABELS[config["lang"]]
     failed = 0
     for sink in new:  # the first message right away: a wrong address is said now, not later
+        title = ""
+        if sink["kind"] == "discord":
+            given = sink["options"].get("thread", "")
+            entry = threads().get(hook_id(sink), {}).get(session, {})
+            known = entry.get("thread") or ""
+            if given.isdigit() or known:  # a thread given, or the one this session already has: written there again
+                sink["thread_id"], sink["thread_state"] = (given, "given") if given.isdigit() else (known, "reused")
+                if sink["thread_state"] == "reused" and entry.get("status"):
+                    sink["status_id"] = entry["status"]  # the same dashboard, edited again
+                threads((hook_id(sink), session, {"thread": sink["thread_id"]}))
+                title = words["restart"] if sink["thread_state"] == "reused" else ""
         try:
-            deliver(sink, dict(event), config)
-            print(f"ok   {sink['id']} {sink['kind']:7} {shown(sink)}")
+            deliver(sink, {**event, "title": title}, config)
+            print(f"ok   {sink['id']} {sink['kind']:7} {shown(sink)}" + thread_note(sink))
         except (RuntimeError, OSError, ValueError) as error:
             failed += 1
             print(f"FAIL {sink['id']} {sink['kind']:7} {shown(sink)}: {error}")
+    remember(base, new)
     with Locked(base / "config.lock"):
         current = load(base) or config
         by_id = {s["id"]: s for s in new}
@@ -842,6 +902,49 @@ def start(args: argparse.Namespace, session: str) -> None:
     print(f"session {session[:8]} · level {config['level']} · {len(current['sinks'])} sink(s)" + (f" · {failed} failed" if failed else ""))
     if failed:
         sys.exit(1)
+
+def thread_note(sink: dict) -> str:
+    state = sink.get("thread_state", "")
+    if state == "text-channel":
+        return ("\n     no thread: a text channel (a webhook makes threads in a forum channel only) - a forum channel's webhook,"
+                " or a thread made by hand there and #thread=<its id>")
+    notes = {"new": "new thread", "reused": "the thread of this session, reused", "given": "the thread given", "lost": "its thread was gone: a new one"}
+    return f"  ({notes.get(state, state)} {sink.get('thread_id', '')})" if state else ""
+
+def clear(session: str) -> None:
+    """Delete every Discord message the log of this session posted (posted.jsonl + the status messages), even after a
+    stop; a message already deleted is skipped. The threads themselves stay (a webhook cannot delete them)."""
+    base = folder(session)
+    file = base / "posted.jsonl"
+    items = [json.loads(line) for line in file.read_text(encoding="utf-8").splitlines() if line.strip()] if file.is_file() else []
+    for sink in (load(base) or {}).get("sinks", []):
+        if sink.get("status_id"):
+            items.append({"hook": sink["url"], "id": sink["status_id"], "thread": sink.get("thread_id")})
+    done, gone, seen = 0, 0, set()
+    for item in items:
+        if item["id"] in seen:
+            continue
+        seen.add(item["id"])
+        url = item["hook"] + f"/messages/{item['id']}" + (f"?thread_id={item['thread']}" if item.get("thread") else "")
+        try:
+            request("DELETE", url, b"", "application/json")
+            done += 1
+        except OSError as error:
+            sys.stderr.write(f"session-log: {item['id']}: {error}\n")
+            continue
+        except RuntimeError as error:
+            if "HTTP 404" not in str(error):
+                sys.stderr.write(f"session-log: {item['id']}: {error}\n")
+                continue
+            gone += 1
+    file.unlink(missing_ok=True)
+    with Locked(base / "config.lock"):
+        config = load(base)
+        if config:
+            for sink in config["sinks"]:
+                sink.pop("status_id", None)
+            save(base, config)
+    print(f"{done} message(s) deleted" + (f", {gone} already gone" if gone else ""))
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -866,6 +969,7 @@ def main() -> None:
     four.add_argument("target", nargs="?", default="all")
     four.add_argument("--text", default="")
     sub.add_parser("list", help="the sinks of this session and the last errors")
+    sub.add_parser("clear", help="delete the Discord messages this session's log posted")
     five = sub.add_parser("hooks", help="install / remove / show the Claude Code hooks")
     five.add_argument("action", choices=["install", "uninstall", "show"])
     five.add_argument("--settings", default=str(SETTINGS))
@@ -881,6 +985,8 @@ def main() -> None:
         settings_hooks(args.action, Path(args.settings).expanduser())
     elif args.command == "start":
         start(args, args.session)
+    elif args.command == "clear":
+        clear(args.session)
     else:
         base = folder(args.session)
         config = load(base)

@@ -19,6 +19,7 @@ web cannot run it: say so and stop there. Outbound only: to receive requests fro
 | `stop`, `close`, `off`, `fin` (+ `s2`) | stop every target (or that one): section 5 |
 | `status`, `list` | `log.py list`: the targets of this session and the last errors |
 | `uninstall` | `log.py hooks uninstall`: the hooks out of `~/.claude/settings.json` |
+| `clear` | `log.py clear`: delete every Discord message this session's log posted (even after a stop) |
 | a Discord webhook URL (`https://discord.com/api/webhooks/...`) | Discord |
 | another `https://...` | an API, its format read from the address (below) |
 | `tcp://HOST:PORT`, `udp://HOST:PORT` (`ip:port` + the word tcp / udp) | a socket: one JSON line per event (`#format=text`: the readable lines) |
@@ -26,7 +27,7 @@ web cannot run it: say so and stop there. Outbound only: to receive requests fro
 | `discord`, `file`, `api`, `tcp`, `udp` alone | that kind, its value asked (section 2) |
 | `level=minimal|key|all`, `mention=<user id>` or `role:<id>`, `name=<name>` | options (per target: after `#`, ex: `<url>#mention=1234,level=all`) |
 
-Other options after `#`: `thread=no` (Discord), `maxmb=25` (Discord attachments, 10 by default), `upload` (JSON API: files
+Other options after `#`: `thread=<id>` (Discord: write in that existing thread), `thread=no` (no thread), `maxmb=25` (Discord attachments, 10 by default), `upload` (JSON API: files
 in a multipart body), `header=Authorization:Bearer X` (API, several with `;`), `emoji=no` (no icons), `avatar=<url>|no` (Discord), `format=...`.
 
 Each destination gets its own layout, from one set of facts per event (icon, label, text, the progress of an `n/m` step,
@@ -51,8 +52,12 @@ Nothing given: one popup -
    `Minimal` (start, end, errors, questions; the steps only in the status) · `Tout` (every error, the status changes too).
 
 Then the values, each asked when not given (an option `Je la colle (Other)` to paste it):
-- **Discord**: the webhook URL - channel settings > Integrations > Webhooks > New webhook > Copy URL. A **forum** channel
-  gets one post per session (a text channel: no thread, the messages carry the session name). Optional: the user's
+- **Discord**: the webhook URL - channel settings > Integrations > Webhooks > New webhook > Copy URL. **One thread per
+  session by default**: in a **forum** channel the thread is made at the first message, remembered
+  (`~/.local/state/session-log/threads.json`) and used again - with the same status message - whenever this session
+  logs there again (a new `start`, a resumed session); a thread deleted or locked is replaced by a new one. A **text**
+  channel cannot get a thread from a webhook (Discord error 220003): recommend a forum channel, or a thread made by hand
+  in it with `#thread=<its id>` (right click > Copy Thread ID); `start` says it when it falls back to plain messages. Optional: the user's
   Discord ID for the ping (Developer mode > right click on the name > Copy User ID). The URL is a password (anyone who
   has it can post there): never written in a repository or a shared place, kept `0600` by `log.py`.
 - **File**: the path (default `~/.local/state/session-log/logs/<project>.log`), `.jsonl` for JSON lines, a folder for copies.
@@ -72,8 +77,9 @@ says so (`log.py start` refuses to run without them anyway). Installed now: this
 log.py hooks show || log.py hooks install    # only after the user accepted (section 2)
 log.py start <target> [<target>...] [--name "<project> · <task>"] [--level key] [--text "<what this session is about>"]
 ```
-Each target gets its first message at once: `ok` or `FAIL <why>` per target (a wrong URL, a closed port); fix and start
-it again. `start` again later adds targets to the running log. Tell the user in one line what is logged where.
+Each target gets its first message at once - **Connexion établie** (or **Connexion rétablie** in the thread this session
+already had) - and prints `ok` (with its thread: new / reused / given) or `FAIL <why>` (a wrong URL, a closed port); fix
+and start it again. `start` again later adds targets to the running log. Tell the user in one line what is logged where.
 
 ## 4. While working (what Claude sends)
 The hooks send by themselves: the request (summarized by Haiku), the questions (with the ping), the permission waits,
@@ -92,8 +98,10 @@ log.py send "Bloqué : ... (raison)" --kind error                      # an erro
   the whole diff: names and results.
 
 ## 5. Stop
-`/session-log stop` -> `log.py stop [s2] --text "<short summary of the session>"`: a last message, then that target (or
-all) stops; the end of the session stops it too. The hooks stay installed and idle (no running log = nothing done);
+`/session-log stop` -> `log.py stop [s2] --text "<short summary of the session>"`: a last message **Fin du log** (duration,
+steps, errors, files), the status turns to *Arrêté*, then that target (or all) stops; the end of the session stops it too.
+`/session-log clear` -> `log.py clear`: every Discord message the log of this session posted is deleted (their ids are kept
+in `posted.jsonl`, `0600`); a webhook cannot read the channel, so only those it posted itself. The hooks stay installed and idle (no running log = nothing done);
 `/session-log uninstall` -> `log.py hooks uninstall` removes them.
 
 ## How it works
