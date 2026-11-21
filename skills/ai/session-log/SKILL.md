@@ -20,14 +20,28 @@ web cannot run it: say so and stop there. Outbound only: to receive requests fro
 | `status`, `list` | `log.py list`: the targets of this session and the last errors |
 | `uninstall` | `log.py hooks uninstall`: the hooks out of `~/.claude/settings.json` |
 | a Discord webhook URL (`https://discord.com/api/webhooks/...`) | Discord |
-| another `https://...` | an API: one JSON POST per event |
-| `tcp://HOST:PORT`, `udp://HOST:PORT` (`ip:port` + the word tcp / udp) | a socket: one JSON line per event |
-| a path: `~/logs/work.log` (text lines), `x.jsonl` (JSON lines), `~/logs/` (a folder: a log + a copy of each file sent) | a file / a folder |
+| another `https://...` | an API, its format read from the address (below) |
+| `tcp://HOST:PORT`, `udp://HOST:PORT` (`ip:port` + the word tcp / udp) | a socket: one JSON line per event (`#format=text`: the readable lines) |
+| a path: `~/logs/work.log` (aligned text), `work.md` (a Markdown journal), `x.jsonl` (JSON lines), `~/logs/` (a folder: a Markdown journal + a copy of each file sent) | a file / a folder |
 | `discord`, `file`, `api`, `tcp`, `udp` alone | that kind, its value asked (section 2) |
 | `level=minimal|key|all`, `mention=<user id>` or `role:<id>`, `name=<name>` | options (per target: after `#`, ex: `<url>#mention=1234,level=all`) |
 
-Other options after `#`: `thread=no` (Discord), `maxmb=25` (Discord attachments, 10 by default), `upload` (API: files in
-a multipart body), `header=Authorization:Bearer X` (API, several with `;`).
+Other options after `#`: `thread=no` (Discord), `maxmb=25` (Discord attachments, 10 by default), `upload` (JSON API: files
+in a multipart body), `header=Authorization:Bearer X` (API, several with `;`), `emoji=no` (no icons), `avatar=<url>|no` (Discord), `format=...`.
+
+Each destination gets its own layout, from one set of facts per event (icon, label, text, the progress of an `n/m` step,
+the choices of a question, the counters at the end):
+
+| Destination | Layout |
+|---|---|
+| Discord | the session-log avatar, an embed per event: emoji + label, the session as author, Discord's timestamp, colour by kind; for `Étape n/m` a progress line (green done, grey left, `n/m · %`), the error in a code block, the numbered choices, an image shown inside, a link as a short clickable path (`🔗 github.com › user › repo`), the counters at the end; the **status** message edited in place as a small dashboard (state, progress, steps / errors / files, started and last activity as relative times) |
+| Slack, Mattermost (`hooks.slack.com`, `#format=slack`) | mrkdwn section + a context line (session, time); `mention=<!here>` or `<@U…>` |
+| ntfy (`ntfy.sh/<topic>`, `#format=ntfy`) | title = icon + label, Markdown body, priority high for questions, waits and errors, click = the link |
+| Gotify (`…/message?token=…`) | title, Markdown message, priority 8 for the urgent ones |
+| Telegram (`api.telegram.org/bot…/sendMessage?chat_id=…`) | HTML message (bold label, italics, code) |
+| another API (`#format=json`, `text`) | the JSON record: raw fields + `line` (ready to show), `progress`, `choices`, `counters`, `state` |
+| `.log` / socket `format=text` | a banner at the start, then one aligned line per event (date, icon + label, text, progress bar), details indented |
+| `.md` / a folder | a Markdown journal: a heading per session, a bullet per event, images shown, files and links as links |
 
 ## 2. Ask what is missing (`interactive-questions`, never guessed)
 Nothing given: one popup -
@@ -66,7 +80,7 @@ The hooks send by themselves: the request (summarized by Haiku), the questions (
 the errors of the tools (one per minute at `key`, the others counted), the end of each turn (summarized by Haiku), the end
 of the session. Claude adds what only it knows - one short line each, in the user's language:
 ```bash
-log.py send "Étape 2/4 : parser écrit et testé"                       # a step done (one line: what, the result)
+log.py send "Étape 2/4 : parser écrit et testé"                       # a step: "n/m" gives the progress bar everywhere
 log.py status "Rendu Blender en cours (≈ 6 min)"                      # a long step starting: the live status only
 log.py send "Rapport prêt" --file out/report.pdf                      # a result file (Discord: attached; folder: copied)
 log.py send "Maquette" --kind info --link https://claude.ai/...       # an artefact, a PR, a page: its link

@@ -9,11 +9,13 @@
     log.py hooks install|uninstall|show [--settings FILE]
     log.py hook                         # what the Claude Code hooks call (event JSON on stdin)
 
-SINK: a Discord webhook URL, an https:// address (an API: one JSON POST per event), tcp://HOST:PORT or udp://HOST:PORT
-(one JSON line per event), a file (.log: text lines, .jsonl: JSON lines), a folder ending with / (a log file + a copy
-of each file sent). Options after #, comma separated: level=minimal|key|all, mention=<user id>|role:<id> (Discord ping
-when a question or a permission waits), thread=no, maxmb=N (Discord attachments, 10 by default), upload (API: files
-sent in a multipart body), header=Name:Value;Name:Value (API).
+SINK: a Discord webhook URL, an https:// address (an API: Slack, ntfy, Gotify, Telegram read from the address, else one
+JSON record per event), tcp://HOST:PORT or udp://HOST:PORT (one JSON line per event), a file (.log: aligned text, .md:
+a Markdown journal, .jsonl: JSON lines), a folder ending with / (a Markdown journal + a copy of each file sent).
+Options after #, comma separated: level=minimal|key|all, mention=<user id>|role:<id> (Discord ping when a question or a
+permission waits; Slack: <!here> or <@U...>), thread=no, maxmb=N (Discord attachments, 10 by default), upload (JSON API:
+files in a multipart body), header=Name:Value;Name:Value (API), format=json|slack|ntfy|gotify|telegram|text (API),
+format=json|text (socket), emoji=no (no icons).
 The session is $CLAUDE_CODE_SESSION_ID (--session for another); the state is in ~/.local/state/session-log/<session>/
 ($SESSION_LOG_DIR), the config 0600 (a webhook URL is a secret). Events are queued and sent in order by one worker in
 the background; the request and the end of each turn are summarized by Haiku (claude -p, a separate process, no fork).
@@ -36,6 +38,8 @@ import uuid
 from pathlib import Path
 
 SCRIPT = Path(__file__).absolute()
+AVATAR = "https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/skills/ai/session-log/assets/avatar.png"
+
 STATE = Path(os.environ.get("SESSION_LOG_DIR", Path.home() / ".local" / "state" / "session-log")).expanduser()
 SETTINGS = Path(os.environ.get("SESSION_LOG_SETTINGS", Path.home() / ".claude" / "settings.json")).expanduser()
 DISCORD = re.compile(r"^https?://[^/]+/api(?:/v\d+)?/webhooks/\d+/[\w-]+$")
@@ -45,15 +49,29 @@ LEVELS["all"] = LEVELS["key"] | {"status"}
 PING = ("question", "waiting")
 COLOURS = {"start": 0x5865F2, "stop": 0x747F8D, "request": 0x3B82F6, "step": 0x22C55E, "done": 0x8B5CF6, "question": 0xF59E0B,
            "waiting": 0xF59E0B, "error": 0xEF4444, "turn": 0x14B8A6, "file": 0x06B6D4, "info": 0x94A3B8, "status": 0x64748B}
+ICONS = {"start": "🟢", "stop": "⬛", "request": "💬", "step": "✅", "done": "🏁", "question": "❓", "waiting": "⏳",
+         "error": "❌", "turn": "🔁", "file": "📎", "info": "📌", "link": "🔗", "status": "📊"}
+STATES = {  # the live status: state -> (icon, colour); the state comes from the last event
+    "working": ("🔵", 0x3B82F6), "waiting": ("🟠", 0xF59E0B), "question": ("🟠", 0xF59E0B), "error": ("🔴", 0xEF4444),
+    "done": ("🟢", 0x22C55E), "stopped": ("⚪", 0x747F8D)}
+STATE_OF = {"turn": "waiting", "waiting": "waiting", "question": "question", "error": "error", "done": "done", "stop": "stopped"}
+STEP = re.compile(r"^\s*(?:(?:étape|etape|step)\s*)?(\d+)\s*/\s*(\d+)\s*[:·.-]?\s*(.*)$", re.I | re.S)  # "Étape 2/4 : ..."
+IMAGE = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+API_FORMATS = ("json", "slack", "ntfy", "gotify", "telegram", "text")
+URGENT = ("question", "waiting", "error")  # a higher priority where the destination has one (ntfy, Gotify)
 LABELS = {
     "fr": {"start": "Log démarré", "stop": "Log arrêté", "request": "Demande reçue", "step": "Étape", "done": "Terminé",
            "question": "Question en attente", "waiting": "En attente", "error": "Erreur", "turn": "Fin de tour", "file": "Fichier",
-           "info": "Info", "status": "Statut", "steps": "étapes", "errors": "erreurs", "last": "dernière activité",
-           "more_errors": "autres erreurs", "too_big": "trop gros pour être joint", "working": "En cours"},
+           "info": "Info", "status": "Statut", "steps": "Étapes", "errors": "Erreurs", "files": "Fichiers", "last": "Dernière activité",
+           "started_at": "Démarré", "duration": "Durée", "folder": "Dossier", "level": "Niveau", "targets": "Cibles",
+           "more_errors": "autres erreurs", "too_big": "trop gros pour être joint", "open": "Ouvrir",
+           "working": "En cours", "waiting_you": "En attente de toi", "stopped": "Arrêté", "answer": "Réponds dans la session"},
     "en": {"start": "Log started", "stop": "Log stopped", "request": "Request received", "step": "Step", "done": "Done",
            "question": "Question waiting", "waiting": "Waiting", "error": "Error", "turn": "End of turn", "file": "File",
-           "info": "Info", "status": "Status", "steps": "steps", "errors": "errors", "last": "last activity",
-           "more_errors": "more errors", "too_big": "too big to attach", "working": "Working"},
+           "info": "Info", "status": "Status", "steps": "Steps", "errors": "Errors", "files": "Files", "last": "Last activity",
+           "started_at": "Started", "duration": "Duration", "folder": "Folder", "level": "Level", "targets": "Targets",
+           "more_errors": "more errors", "too_big": "too big to attach", "open": "Open",
+           "working": "Working", "waiting_you": "Waiting for you", "stopped": "Stopped", "answer": "Answer in the session"},
 }
 SECRETS = [
     (re.compile(r"https?://[^\s/]+/api(?:/v\d+)?/webhooks/\d+/[\w-]+"), "[webhook]"),
@@ -129,12 +147,15 @@ def parse_sink(spec: str, number: int) -> dict:
             sys.exit("session-log: a Discord webhook goes over https")
         return {**sink, "kind": "discord", "url": raw}
     if raw.startswith("https://") or local:
-        return {**sink, "kind": "api", "url": raw}
+        return {**sink, "kind": "api", "url": raw, "format": api_format(raw, options)}
     if raw.startswith("http://"):
         sys.exit(f"session-log: {raw}: plain http only to this computer (127.0.0.1); use https")
     match = re.fullmatch(r"(tcp|udp)://(\[[^\]]+\]|[^:/]+):(\d{1,5})", raw)
     if match:
-        return {**sink, "kind": match.group(1), "host": match.group(2).strip("[]"), "port": int(match.group(3))}
+        if options.get("format", "json") not in ("json", "text"):
+            sys.exit("session-log: a socket takes format=json (one JSON line per event) or format=text (readable lines)")
+        return {**sink, "kind": match.group(1), "host": match.group(2).strip("[]"), "port": int(match.group(3)),
+                "format": options.get("format", "json")}
     if re.match(r"^[a-z]+://", raw):
         sys.exit(f"session-log: {raw}: unknown sink (Discord webhook, https, tcp://, udp://, a file or a folder/)")
     path = Path(raw).expanduser().absolute()
@@ -142,13 +163,33 @@ def parse_sink(spec: str, number: int) -> dict:
         return {**sink, "kind": "dir", "path": str(path)}
     return {**sink, "kind": "file", "path": str(path)}
 
+def api_format(url: str, options: dict) -> str:
+    """The body an API expects, from #format= or from its address: Slack (and Mattermost / Rocket.Chat, the same
+    webhooks), ntfy, Gotify, a Telegram bot, else the generic JSON record."""
+    chosen = options.get("format", "")
+    if chosen:
+        if chosen not in API_FORMATS:
+            sys.exit(f"session-log: format must be one of {', '.join(API_FORMATS)}")
+        return chosen
+    parts = urllib.parse.urlsplit(url)
+    if parts.netloc == "hooks.slack.com" or "/hooks/" in parts.path and "mattermost" in parts.netloc:
+        return "slack"
+    if parts.netloc == "ntfy.sh" or parts.netloc.startswith("ntfy."):
+        return "ntfy"
+    if parts.path.rstrip("/").endswith("/message") and "token=" in parts.query:
+        return "gotify"
+    if parts.netloc == "api.telegram.org" and parts.path.endswith("/sendMessage"):
+        return "telegram"
+    return "json"
+
 def shown(sink: dict) -> str:
     """A sink as it can be printed: the token of a webhook, the query and the headers of an API hidden."""
     if sink["kind"] == "discord":
         return re.sub(r"/[\w-]+$", "/****", sink["url"])
     if sink["kind"] == "api":
         parts = urllib.parse.urlsplit(sink["url"])
-        return f"{parts.scheme}://{parts.netloc}{parts.path}" + (" (+headers)" if sink["options"].get("header") else "")
+        path = re.sub(r"/bot[^/]+", "/bot****", re.sub(r"(/services/[^/]+/[^/]+/)[^/]+", r"\1****", parts.path))
+        return f"{parts.scheme}://{parts.netloc}{path} ({sink.get('format', 'json')})" + (" (+headers)" if sink["options"].get("header") else "")
     if sink["kind"] in ("tcp", "udp"):
         return f"{sink['kind']}://{sink['host']}:{sink['port']}"
     return sink["path"] + ("/" if sink["kind"] == "dir" else "")
@@ -172,14 +213,16 @@ def request(method: str, url: str, body: bytes, kind: str, headers: dict | None 
             raise RuntimeError(f"HTTP {error.code} {detail}") from None
     raise RuntimeError("HTTP 429 (rate limited)")
 
-def multipart(fields: dict, files: list[Path], prefix: str) -> tuple[bytes, str]:
-    """A multipart/form-data body: the fields, then the files as <prefix>[n] (Discord: files[0], files[1]...)."""
+def multipart(fields: dict, files: list, prefix: str) -> tuple[bytes, str]:
+    """A multipart/form-data body: the fields, then the files as <prefix>[n] (Discord: files[0], files[1]...); a file is
+    a Path or (Path, the name it is sent under)."""
     boundary = uuid.uuid4().hex
     out = b""
     for name, value in fields.items():
         out += f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\nContent-Type: application/json\r\n\r\n'.encode() + value.encode() + b"\r\n"
-    for index, file in enumerate(files):
-        head = f'--{boundary}\r\nContent-Disposition: form-data; name="{prefix}[{index}]"; filename="{file.name}"\r\nContent-Type: application/octet-stream\r\n\r\n'
+    for index, item in enumerate(files):
+        file, name = item if isinstance(item, tuple) else (item, item.name)
+        head = f'--{boundary}\r\nContent-Disposition: form-data; name="{prefix}[{index}]"; filename="{name}"\r\nContent-Type: application/octet-stream\r\n\r\n'
         out += head.encode() + file.read_bytes() + b"\r\n"
     return out + f"--{boundary}--\r\n".encode(), f"multipart/form-data; boundary={boundary}"
 
@@ -195,19 +238,90 @@ def discord_url(sink: dict, extra: str = "", **params: str) -> str:
         query["thread_id"] = sink["thread_id"]
     return sink["url"] + extra + ("?" + urllib.parse.urlencode(query) if query else "")
 
-def discord(sink: dict, event: dict, config: dict, words: dict) -> None:
-    """A message with one embed (its colour by kind), the mention when it waits for the user, the files attached
-    under the size limit (the others named); a forum channel gets one post per session at the first message."""
-    text = event["text"]
-    big = [f for f in event.get("files", []) if Path(f).is_file() and Path(f).stat().st_size > float(sink["options"].get("maxmb", 10)) * (1 << 20)]
-    small = [Path(f) for f in event.get("files", []) if Path(f).is_file() and f not in big]
+def span(seconds: float) -> str:
+    seconds = int(max(0, seconds))
+    if seconds >= 3600:
+        return f"{seconds // 3600} h {seconds % 3600 // 60:02d} min"
+    return f"{seconds // 60} min {seconds % 60:02d} s" if seconds >= 60 else f"{seconds} s"
+
+def bar(done: int, total: int, width: int = 24) -> str:
+    """A Discord progress bar: a line in an ANSI block, green for the part done, grey for the rest, then the count."""
+    full = round(width * min(done, total) / max(total, 1))
+    escape = "\u001b"
+    return (f"```ansi\n{escape}[32m{'━' * full}{escape}[0m{escape}[30m{'━' * (width - full)}{escape}[0m  "
+            f"{done}/{total} · {round(100 * min(done, total) / max(total, 1))} %\n```")
+
+def link_line(url: str) -> str:
+    """A link shown as a short path (host › part › part), clickable, instead of the raw address."""
+    parts = urllib.parse.urlsplit(url)
+    crumbs = [parts.netloc.removeprefix("www.")] + [p for p in parts.path.split("/") if p][:3]
+    return f"🔗 [{' › '.join(crumbs)}]({url})"
+
+def avatar(sink: dict) -> dict:
+    url = sink["options"].get("avatar", AVATAR)
+    return {} if url == "no" else {"avatar_url": url}
+
+def stamp(moment: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(moment))
+
+def icon(sink: dict, key: str) -> str:
+    return "" if sink["options"].get("emoji") == "no" else ICONS.get(key, "") + " "
+
+def embed_of(sink: dict, event: dict, config: dict, words: dict, status: dict | None) -> tuple[dict, list[Path]]:
+    """The embed of one event: icon + label, the session as author, Discord's own timestamp, a layout per kind (a
+    progress bar for "n/m" steps, a code block for an error, the numbered choices of a question, the counters at the
+    end, the first image shown inside); the files to attach with it."""
+    kind, text = event["kind"], event["text"]
+    title = event.get("title") or words.get(kind, kind)
+    description, fields = text, []
+    if kind == "step" and STEP.match(text):
+        done, total, rest = STEP.match(text).groups()
+        title, description = f"{words['step']} {done}/{total}", (rest.strip() + "\n" if rest.strip() else "") + bar(int(done), int(total))
+    elif kind in ("request", "turn"):
+        description = "\n".join(f"> {line}" for line in text.splitlines() if line.strip())
+    elif kind == "error":
+        description = f"```\n{text[:3900]}\n```"
+    elif kind == "question":
+        choices = event.get("choices", [])
+        description = text + ("\n\n" + "\n".join(f"**{n}.** {c}" for n, c in enumerate(choices, 1)) if choices else "") + f"\n-# {words['answer']}"
+    elif kind == "waiting":
+        description = f"{text}\n-# {words['answer']}"
+    if kind == "start":
+        fields = [{"name": words["folder"], "value": f"`{config['cwd'][-200:]}`", "inline": False},
+                  {"name": words["level"], "value": config["level"], "inline": True},
+                  {"name": words["targets"], "value": str(len(config["sinks"])), "inline": True}]
+        description = text if text != f"{config['name']} · {config['cwd']}" else ""
+        description = description.split("\n", 1)[1] if description.startswith(config["name"]) else description
+    if kind in ("done", "stop") and status:
+        fields = [{"name": words["duration"], "value": span(event["time"] - config.get("started", event["time"])), "inline": True},
+                  {"name": words["steps"], "value": str(status.get("steps", 0)), "inline": True},
+                  {"name": words["errors"], "value": str(status.get("errors", 0)), "inline": True},
+                  {"name": words["files"], "value": str(status.get("files", 0)), "inline": True}]
+    limit = float(sink["options"].get("maxmb", 10)) * (1 << 20)
+    files = [Path(f) for f in event.get("files", []) if Path(f).is_file()]
+    big = [f for f in files if f.stat().st_size > limit]
+    files = [f for f in files if f not in big]
     if big:
-        text += "\n" + "\n".join(f"`{Path(f).name}`: {words['too_big']} ({f})" for f in big)
-    embed = {"title": event.get("title") or words.get(event["kind"], event["kind"]), "description": text[:4000],
-             "color": COLOURS.get(event["kind"], 0x94A3B8), "footer": {"text": f"{config['name']} · {time.strftime('%H:%M:%S', time.localtime(event['time']))}"}}
+        description += "\n" + "\n".join(f"`{f.name}`: {words['too_big']} (`{f}`)" for f in big)
+    if event.get("link"):
+        description += f"\n\n{link_line(event['link'])}"
+    key = "link" if event.get("link") and kind == "info" else kind
+    embed = {"author": {"name": config["name"][:250]}, "title": (icon(sink, key) + title)[:250], "description": description.strip()[:4000],
+             "color": COLOURS.get(kind, 0x94A3B8), "timestamp": stamp(event["time"])}
+    if fields:
+        embed["fields"] = fields
     if event.get("link"):
         embed["url"] = event["link"]
-    payload: dict = {"username": f"Claude · {config['name']}"[:80], "embeds": [embed], "allowed_mentions": {"parse": []}}
+    image = next((f for f in files if isinstance(f, Path) and f.suffix.lower() in IMAGE), None)
+    if image:
+        embed["image"] = {"url": f"attachment://{image.name}"}
+    return embed, files
+
+def discord(sink: dict, event: dict, config: dict, words: dict, status: dict | None = None) -> None:
+    """A message with one embed (embed_of), the mention when it waits for the user, the files attached; a forum
+    channel gets one post per session at the first message, a text channel falls back to plain messages."""
+    embed, files = embed_of(sink, event, config, words, status)
+    payload: dict = {"username": f"Claude · {config['name']}"[:80], "embeds": [embed], "allowed_mentions": {"parse": []}, **avatar(sink)}
     mention = sink["options"].get("mention", "")
     if event["kind"] in PING and mention:
         role = mention.startswith("role:")
@@ -217,57 +331,225 @@ def discord(sink: dict, event: dict, config: dict, words: dict) -> None:
     first = not sink.get("started") and not sink.get("thread_id") and sink["options"].get("thread") != "no"
     if first:
         payload["thread_name"] = config["name"][:100]
-    body, kind = multipart({"payload_json": json.dumps(payload)}, small, "files") if small else (json.dumps(payload).encode(), "application/json")
+
+    def body() -> tuple[bytes, str]:
+        return multipart({"payload_json": json.dumps(payload)}, files, "files") if files else (json.dumps(payload).encode(), "application/json")
+
     try:
-        answer = request("POST", discord_url(sink, wait="true"), body, kind)
+        answer = request("POST", discord_url(sink, wait="true"), *body())
     except RuntimeError as error:
         if not first or "HTTP 400" not in str(error):
             raise
         payload.pop("thread_name")  # a text channel: no thread from a webhook (only a forum channel makes one)
         sink["options"]["thread"] = "no"
-        body, kind = multipart({"payload_json": json.dumps(payload)}, small, "files") if small else (json.dumps(payload).encode(), "application/json")
-        answer = request("POST", discord_url(sink, wait="true"), body, kind)
+        answer = request("POST", discord_url(sink, wait="true"), *body())
     if first and "thread_name" in payload and answer.get("channel_id"):
         sink["thread_id"] = answer["channel_id"]
     sink["started"] = True
 
 def discord_status(sink: dict, status: dict, config: dict, words: dict) -> None:
-    """The live status: one message edited in place (posted again when it was deleted)."""
-    title = {"turn": "waiting", "question": "question", "waiting": "waiting", "done": "done"}.get(status.get("kind", ""), "working")
-    embed = {"title": words[title], "description": status["text"][:1000], "color": COLOURS["status"],
-             "footer": {"text": f"{status['steps']} {words['steps']} · {status['errors']} {words['errors']} · {words['last']} "
-                                f"{time.strftime('%H:%M:%S', time.localtime(status['time']))}"}}
-    body = json.dumps({"embeds": [embed], "allowed_mentions": {"parse": []}}).encode()
+    """The live status, one message edited in place (posted again when deleted): the state (working, waiting for the
+    user, error, done, stopped) as icon and colour, what is going on, the progress bar of the last "n/m" step, the
+    counters and Discord relative times (they tick by themselves: "2 minutes ago")."""
+    state = STATE_OF.get(status.get("kind", ""), "working")
+    mark, colour = STATES[state]
+    label = {"working": words["working"], "waiting": words["waiting_you"], "question": words["question"], "error": words["error"],
+             "done": words["done"], "stopped": words["stopped"]}[state]
+    lines = [status.get("text", "")[:900]]
+    if status.get("progress"):
+        lines.append(bar(*status["progress"]))
+    started = int(config.get("started", status["time"]))
+    emoji = "" if sink["options"].get("emoji") == "no" else mark + " "
+    embed = {"author": {"name": config["name"][:250]}, "title": emoji + label,
+             "description": "\n".join(line for line in lines if line), "color": colour, "timestamp": stamp(status["time"]),
+             "fields": [{"name": words["steps"], "value": str(status.get("steps", 0)), "inline": True},
+                        {"name": words["errors"], "value": str(status.get("errors", 0)), "inline": True},
+                        {"name": words["files"], "value": str(status.get("files", 0)), "inline": True},
+                        {"name": words["started_at"], "value": f"<t:{started}:R>", "inline": True},
+                        {"name": words["last"], "value": f"<t:{int(status['time'])}:R>", "inline": True},
+                        {"name": words["duration"], "value": span(status["time"] - started), "inline": True}],
+             "footer": {"text": f"{words['status']} · session-log"}}
+    def body(payload: dict) -> tuple[bytes, str]:
+        return json.dumps({**payload, "attachments": []}).encode(), "application/json"  # an edit drops an old attachment
+
     if sink.get("status_id"):
         try:
-            request("PATCH", discord_url(sink, f"/messages/{sink['status_id']}"), body, "application/json")
+            request("PATCH", discord_url(sink, f"/messages/{sink['status_id']}"), *body({"embeds": [embed], "allowed_mentions": {"parse": []}}))
             return
         except RuntimeError as error:
             if "HTTP 404" not in str(error):
                 raise
-    payload = {"username": f"Claude · {config['name']}"[:80], "embeds": [embed], "allowed_mentions": {"parse": []}}
-    sink["status_id"] = request("POST", discord_url(sink, wait="true"), json.dumps(payload).encode(), "application/json").get("id")
+    payload = {"username": f"Claude · {config['name']}"[:80], "embeds": [embed], "allowed_mentions": {"parse": []}, **avatar(sink)}
+    sink["status_id"] = request("POST", discord_url(sink, wait="true"), *body(payload)).get("id")
 
-def record(event: dict, config: dict) -> dict:
-    """The event as JSON for an API, a socket or a .jsonl file."""
-    return {"session": config["session"], "name": config["name"], "cwd": config["cwd"], "kind": event["kind"],
-            "title": event.get("title", ""), "text": event["text"], "time": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(event["time"])),
-            "files": [file_info(f) for f in event.get("files", [])], "link": event.get("link", "")}
+def facts(sink: dict, event: dict, config: dict, status: dict | None) -> dict:
+    """What every format shows of an event, computed once: icon, label, text, progress of a "n/m" step, choices of a
+    question, counters and duration at the end, the start details."""
+    words, kind, text = LABELS[config["lang"]], event["kind"], event["text"]
+    key = "link" if event.get("link") and kind == "info" else kind
+    out = {"kind": kind, "icon": "" if sink["options"].get("emoji") == "no" else ICONS.get(key, ""),
+           "label": event.get("title") or words.get(kind, kind), "text": text, "progress": None, "choices": event.get("choices", []),
+           "link": event.get("link", ""), "files": [file_info(f) for f in event.get("files", [])], "counters": None, "time": event["time"]}
+    step = STEP.match(text) if kind == "step" else None
+    if step:
+        out.update(label=f"{words['step']} {step.group(1)}/{step.group(2)}", text=step.group(3).strip(),
+                   progress=[int(step.group(1)), int(step.group(2))])
+    if kind == "start":
+        out["text"] = text.split("\n", 1)[1] if "\n" in text else ""
+        out["counters"] = {words["folder"]: config["cwd"], words["level"]: config["level"], words["targets"]: str(len(config["sinks"]))}
+    if kind in ("done", "stop") and status:
+        out["counters"] = {words["duration"]: span(event["time"] - config.get("started", event["time"])), words["steps"]: str(status.get("steps", 0)),
+                           words["errors"]: str(status.get("errors", 0)), words["files"]: str(status.get("files", 0))}
+    return out
 
-def deliver(sink: dict, event: dict, config: dict) -> None:
-    """Send one event to one sink (raises on failure)."""
+def plain_bar(progress: list | None) -> str:
+    if not progress:
+        return ""
+    done, total = progress
+    full = round(10 * min(done, total) / max(total, 1))
+    return f"[{'▰' * full}{'▱' * (10 - full)} {done}/{total}]"
+
+def text_lines(f: dict, config: dict) -> list[str]:
+    """A readable log: the start as a banner, then one aligned line per event (date, icon + label, text, progress),
+    the other lines of a text, the choices, the files, the link and the counters indented under it."""
+    when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(f["time"]))
+    pad = " " * 22
+    if f["kind"] == "start":
+        head = [f"── {f['icon']} {config['name']} · {when} ".replace("  ", " ") + "─" * 20]
+        return head + [f"{pad}{k}: {v}" for k, v in (f["counters"] or {}).items()] + ([f"{pad}{f['text']}"] if f["text"] else [])
+    label = f"{f['icon']} {f['label']}".strip()
+    body = restyle(f["text"], "plain").splitlines() or [""]
+    lines = [f"{when}  {label:<24} {body[0]}" + (f"  {plain_bar(f['progress'])}" if f["progress"] else "")]
+    lines += [f"{pad}{' ' * 23}{line}" for line in body[1:]]
+    lines += [f"{pad}{' ' * 23}{n}. {restyle(c, 'plain')}" for n, c in enumerate(f["choices"], 1)]
+    lines += [f"{pad}{' ' * 23}📎 {x['path']}" for x in f["files"]] + ([f"{pad}{' ' * 23}🔗 {f['link']}"] if f["link"] else [])
+    if f["counters"]:
+        lines.append(f"{pad}{' ' * 23}" + " · ".join(f"{k} {v}" for k, v in f["counters"].items()))
+    if f["kind"] == "stop":
+        lines.append("─" * 60)
+    return lines
+
+def markdown(f: dict, config: dict, files: list[str]) -> str:
+    """A Markdown journal: a heading per session, one bullet per event (time, icon, bold label, text), the choices and
+    the counters as sub-lists, images shown, other files and links as links."""
+    when = time.strftime("%H:%M:%S", time.localtime(f["time"]))
+    if f["kind"] == "start":
+        head = f"\n## {f['icon']} {config['name']} · {time.strftime('%Y-%m-%d %H:%M', time.localtime(f['time']))}\n\n"
+        return head + "".join(f"- **{k}**: `{v}`\n" for k, v in (f["counters"] or {}).items()) + (f"\n{f['text']}\n" if f["text"] else "") + "\n"
+    text = f["text"].replace("\n", "  \n  ")
+    if f["kind"] == "error":
+        text = f"`{text}`"
+    line = f"- `{when}` {f['icon']} **{f['label']}**" + (f" · {text}" if text else "") + (f" `{plain_bar(f['progress'])}`" if f["progress"] else "") + "\n"
+    line += "".join(f"  {n}. {c}\n" for n, c in enumerate(f["choices"], 1))
+    for path in files:
+        name = Path(path).name
+        line += f"  ![{name}]({path})\n" if name.lower().endswith(IMAGE) else f"  - [{name}]({path})\n"
+    if f["link"]:
+        line += f"  - {link_line(f['link'])}\n"
+    if f["counters"]:
+        line += "  - " + " · ".join(f"**{k}** {v}" for k, v in f["counters"].items()) + "\n"
+    return line + ("\n---\n" if f["kind"] == "stop" else "")
+
+def record(f: dict, config: dict, status: dict | None = None) -> dict:
+    """The event as JSON (generic API, socket, .jsonl): the raw fields plus what a consumer shows as is (line)."""
+    out = {"session": config["session"], "name": config["name"], "cwd": config["cwd"], "kind": f["kind"], "icon": f["icon"],
+           "label": f["label"], "text": f["text"], "line": f"{f['icon']} {f['label']}".strip() + (f" · {f['text']}" if f["text"] else ""),
+           "time": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(f["time"])), "files": f["files"], "link": f["link"]}
+    for key in ("progress", "choices", "counters"):
+        if f[key]:
+            out[key] = f[key]
+    if status:
+        out["state"] = STATE_OF.get(status.get("kind", ""), "working")
+    return out
+
+def chat_text(f: dict, markup: str, label: bool = True) -> str:
+    """One message for a chat (Slack mrkdwn, Telegram HTML, ntfy / Gotify Markdown): the label in bold, the text, the
+    progress, the choices, the counters, the links."""
+    def bold(text: str) -> str:
+        if markup == "html":
+            return f"<b>{html_escape(text)}</b>"
+        return f"*{text}*" if markup == "slack" else f"**{text}**"
+    def esc(text: str) -> str:
+        return restyle(text, markup)
+
+    one = f["text"] and "\n" not in f["text"]
+    lines = [f"{f['icon']} {bold(f['label'])}".strip() + (f" · {esc(f['text'])}" if one else "")] if label else ([esc(f["text"])] if one else [])
+    if "\n" in f["text"]:
+        lines += [esc(line) for line in f["text"].splitlines()]
+    if f["progress"]:
+        lines.append(plain_bar(f["progress"]))
+    lines += [f"{n}. {esc(c)}" for n, c in enumerate(f["choices"], 1)]
+    if f["counters"]:
+        lines.append(" · ".join(f"{bold(k)} {esc(v)}" for k, v in f["counters"].items()))
+    lines += [f"📎 {html_escape(x['name']) if markup == 'html' else x['name']} ({x['path']})" for x in f["files"]]
+    if f["link"]:
+        lines.append(f"<{f['link']}>" if markup == "slack" else f["link"])
+    return "\n".join(lines)
+
+def restyle(text: str, markup: str) -> str:
+    """The Markdown of a text (**bold**, *italic*, `code`) in the markup of the destination: Slack mrkdwn, Telegram
+    HTML, or plain (a text log)."""
+    if markup == "md":
+        return text
+    if markup == "html":
+        text = html_escape(text)
+        text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+        text = re.sub(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])", r"<i>\1</i>", text)
+        return re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    if markup == "slack":
+        text = re.sub(r"(?<![\w*])\*(?!\s)([^*]+?)(?<!\s)\*(?![\w*])", r"_\1_", text)
+        return re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
+    return re.sub(r"\*\*(.+?)\*\*|(?<![\w*])\*(?!\s)([^*]+?)(?<!\s)\*(?![\w*])", lambda m: m.group(1) or m.group(2), text)
+
+def html_escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+def api_body(sink: dict, f: dict, config: dict, status: dict | None) -> tuple[str, bytes]:
+    """The URL and the JSON body an API expects (its format)."""
+    form, mention = sink.get("format", "json"), sink["options"].get("mention", "")
+    if form == "slack":
+        text = chat_text(f, "slack")
+        if f["kind"] in PING and mention:
+            text = f"{mention} {text}"
+        context = f"{config['name']} · {time.strftime('%H:%M:%S', time.localtime(f['time']))}"
+        return sink["url"], json.dumps({"text": text, "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": text[:2900]}},
+                                                                 {"type": "context", "elements": [{"type": "mrkdwn", "text": context}]}]}).encode()
+    if form == "ntfy":  # JSON publishing: the topic in the body, posted to the server root
+        parts = urllib.parse.urlsplit(sink["url"])
+        body = {"topic": parts.path.strip("/"), "title": f"{f['icon']} {f['label']}".strip(), "message": chat_text(f, "md", label=False) or f["label"],
+                "priority": 4 if f["kind"] in URGENT else 3, "markdown": True, "tags": [f["kind"]]}
+        if f["link"]:
+            body["click"] = f["link"]
+        return f"{parts.scheme}://{parts.netloc}/", json.dumps(body).encode()
+    if form == "gotify":
+        return sink["url"], json.dumps({"title": f"{f['icon']} {f['label']} · {config['name']}".strip(), "message": chat_text(f, "md", label=False) or f["label"],
+                                        "priority": 8 if f["kind"] in URGENT else 4,
+                                        "extras": {"client::display": {"contentType": "text/markdown"}}}).encode()
+    if form == "telegram":
+        chat = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(sink["url"]).query)).get("chat_id", "")
+        return sink["url"].split("?")[0], json.dumps({"chat_id": chat, "text": chat_text(f, "html")[:4000], "parse_mode": "HTML",
+                                                      "disable_web_page_preview": True}).encode()
+    if form == "text":
+        return sink["url"], json.dumps({"text": "\n".join(text_lines(f, config))}).encode()
+    return sink["url"], json.dumps(record(f, config, status)).encode()
+
+def deliver(sink: dict, event: dict, config: dict, status: dict | None = None) -> None:
+    """Send one event to one sink, in the format of that destination (raises on failure)."""
     words = LABELS[config["lang"]]
     kind = sink["kind"]
     if kind == "discord":
-        discord(sink, event, config, words)
-    elif kind == "api":
-        headers = dict(h.split(":", 1) for h in sink["options"].get("header", "").split(";") if ":" in h)
-        files = [Path(f) for f in event.get("files", []) if Path(f).is_file()] if "upload" in sink["options"] else []
-        data = json.dumps(record(event, config))
-        body, form = multipart({"payload_json": data}, files, "files") if files else (data.encode(), "application/json")
-        request("POST", sink["url"], body, form, {k.strip(): v.strip() for k, v in headers.items()})
+        discord(sink, event, config, words, status)
+        return
+    f = facts(sink, event, config, status)
+    if kind == "api":
+        headers = {k.strip(): v.strip() for k, v in (h.split(":", 1) for h in sink["options"].get("header", "").split(";") if ":" in h)}
+        url, data = api_body(sink, f, config, status)
+        files = [Path(x) for x in event.get("files", []) if Path(x).is_file()] if "upload" in sink["options"] and sink.get("format", "json") == "json" else []
+        body, form = multipart({"payload_json": data.decode()}, files, "files") if files else (data, "application/json")
+        request("POST", url, body, form, headers)
     elif kind in ("tcp", "udp"):
-        line = (json.dumps(record(event, config), ensure_ascii=False) + "\n").encode()
+        text = "\n".join(text_lines(f, config)) if sink.get("format") == "text" else json.dumps(record(f, config, status), ensure_ascii=False)
+        line = (text + "\n").encode()
         if kind == "tcp":
             with socket.create_connection((sink["host"], sink["port"]), timeout=8) as link:
                 link.sendall(line)
@@ -276,24 +558,26 @@ def deliver(sink: dict, event: dict, config: dict) -> None:
             with socket.socket(family, socket.SOCK_DGRAM) as link:
                 link.sendto(line[:60000], (sink["host"], sink["port"]))
     else:
-        target = Path(sink["path"])
+        target, files = Path(sink["path"]), list(event.get("files", []))
         if kind == "dir":
             target.mkdir(parents=True, exist_ok=True)
             copies = target / f"{slug(config['name'])}-files"
-            for file in event.get("files", []):
+            for index, file in enumerate(files):
                 if Path(file).is_file():
                     copies.mkdir(exist_ok=True)
                     shutil.copy2(file, copies / Path(file).name)
-            target = target / f"{slug(config['name'])}.log"
+                    files[index] = f"{copies.name}/{Path(file).name}"  # relative: the journal opens it from the folder
+            target = target / f"{slug(config['name'])}.{sink['options'].get('format', 'md')}"
         target.parent.mkdir(parents=True, exist_ok=True)
-        if target.suffix == ".jsonl":
-            line = json.dumps(record(event, config), ensure_ascii=False)
+        suffix = target.suffix.lower()
+        if suffix in (".jsonl", ".json"):
+            text = json.dumps(record(f, config, status), ensure_ascii=False) + "\n"
+        elif suffix in (".md", ".markdown"):
+            text = markdown(f, config, files)
         else:
-            stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(event["time"]))
-            extra = "".join(f" -> {f}" for f in event.get("files", [])) + (f" -> {event['link']}" if event.get("link") else "")
-            line = f"{stamp} [{event['kind']}] {config['name']}: " + (event.get("title", "") + ": " if event.get("title") else "") + event["text"].replace("\n", " / ") + extra
+            text = "\n".join(text_lines(f, config)) + "\n"
         with open(target, "a", encoding="utf-8") as log:
-            log.write(line + "\n")
+            log.write(text)
 
 # ======================================================================= queue and worker
 def enqueue(session: str, event: dict) -> None:
@@ -342,7 +626,11 @@ def process(base: Path, event: dict) -> None:
     status_file = base / "status.json"
     status: dict = json.loads(status_file.read_text(encoding="utf-8")) if status_file.is_file() else {"steps": 0, "errors": 0, "folded": 0, "last_error": 0}
     kind = event["kind"]
-    status["steps"] += kind in ("step", "done")
+    status["steps"] += kind == "step"
+    status["files"] = status.get("files", 0) + len(event.get("files", []))
+    progress = STEP.match(event["text"]) if kind == "step" else None
+    if progress:
+        status["progress"] = [int(progress.group(1)), int(progress.group(2))]
     folded = False
     if kind == "error":
         status["errors"] += 1
@@ -354,10 +642,13 @@ def process(base: Path, event: dict) -> None:
                 event["text"] += f"\n(+{status['folded']} {LABELS[config['lang']]['more_errors']})"
                 status["folded"] = 0
     words = LABELS[config["lang"]]
-    if kind != "status":
-        status["text"] = f"{event.get('title') or words.get(kind, kind)}: {event['text'][:300]}"
-    else:
+    if kind == "status":
         status["text"] = event["text"][:300]
+    else:
+        short, label = event["text"].replace("\n", " ")[:300], event.get("title") or words.get(kind, kind)
+        if progress:
+            short, label = progress.group(3).strip()[:300], f"{words['step']} {progress.group(1)}/{progress.group(2)}"
+        status["text"] = f"**{label}**" + (f" · {short}" if short else "")
     status["time"] = event["time"]
     if kind != "status":
         status["kind"] = kind
@@ -368,8 +659,8 @@ def process(base: Path, event: dict) -> None:
         level = sink["options"].get("level", config["level"])
         try:
             if kind in LEVELS[level] and not folded:
-                deliver(sink, event, config)
-            if sink["kind"] == "discord" and kind not in ("stop",):
+                deliver(sink, event, config, status)
+            if sink["kind"] == "discord":
                 discord_status(sink, status, config, words)
         except (RuntimeError, OSError, ValueError) as error:
             note_error(base, sink["id"], f"{kind}: {error}")
@@ -425,11 +716,11 @@ def from_hook(data: dict) -> dict | None:
             return None
         return {"kind": "request", "text": prompt, "summarize": "request"}
     if name == "PreToolUse" and data.get("tool_name") == "AskUserQuestion":
-        lines = []
-        for question in data.get("tool_input", {}).get("questions", []):
-            lines.append(f"**{question.get('question', '')}**")
-            lines += [f"- {option.get('label', '')}" for option in question.get("options", [])]
-        return {"kind": "question", "text": "\n".join(lines) or "?"}
+        questions = data.get("tool_input", {}).get("questions", [])
+        text = "\n".join(f"**{q.get('question', '')}**" for q in questions) or "?"
+        choices = [o.get("label", "") + (f" · *{o['description'][:120]}*" if o.get("description") else "")
+                   for q in questions[:1] for o in q.get("options", [])]
+        return {"kind": "question", "text": text, "choices": choices}
     if name == "Notification":
         message = str(data.get("message", ""))
         waiting = "permission" in message.lower() or data.get("notification_type") == "permission_prompt"
@@ -605,7 +896,8 @@ def main() -> None:
             missing = [f for f in args.file if not Path(f).is_file()]
             if missing:
                 sys.exit(f"session-log: not found: {', '.join(missing)}")
-            enqueue(args.session, {"kind": "file" if args.file and args.kind == "step" else args.kind, "title": args.title, "text": args.text,
+            plain_file = args.file and args.kind == "step" and not STEP.match(args.text)
+            enqueue(args.session, {"kind": "file" if plain_file else args.kind, "title": args.title, "text": args.text,
                                    "files": [str(Path(f).absolute()) for f in args.file], "link": args.link})
         elif args.command == "status":
             enqueue(args.session, {"kind": "status", "text": args.text})
