@@ -2,7 +2,8 @@
 
 How a session works with me: questions through the QCM popup, the doubts asked first, ideas, a run without
 interruption, a clean pause resumed at the next `continue`, the context of a project or of earlier sessions, a handover file, token-minimal outputs, writing in
-my voice, presentations.
+my voice, presentations with little text and real pictures, sessions on several computers linked, the progress of a
+session logged to Discord / a file / an API / a socket.
 
 ## Skills
 <!-- generated:skills -->

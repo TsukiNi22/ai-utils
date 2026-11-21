@@ -57,7 +57,7 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | resume a paused task ("continue", "reprends" after a pause, a checkpoint waiting for the project) | `continue-work` | - |
 | write in the user's own voice ("écris comme moi", "avec mes mots", a message / note / prompt in his style) | `write-like-me` | - |
 | set up the context of a project / folder before working on it (read the repo, its git history, the earlier sessions that touched it: "onboard", "lis tout le repo", "prends connaissance du projet"; the project only, the skills / MCP of the session too: `setup-context`) | `onboard` (uses `rtk`) | - |
-| make a presentation / slides / a deck / a PDF or PPT from a plan or an idea ("fais une présentation", "un ppt") | `presentation` (uses `interactive-questions`) | - |
+| make a presentation / slides / a deck / a PDF or PPT from a plan or an idea, little text with icons, logos and pictures from the web ("fais une présentation", "un ppt") | `presentation` (uses `interactive-questions`) | - |
 | give every git / repository permission from the prompt ("tu as tous les droits", "commit/push sans demander", /full-permission) | `full-permission` | - |
 | set up a whole new project (architecture + tests + license + git + CI/CD + README) | the steps of `setup-project` (its table, skills loaded in that order) | `setup-project` |
 | several / all audits of the project at once | follow the `audit` router (checklist of audits + format) | `audit` |
