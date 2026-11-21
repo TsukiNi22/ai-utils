@@ -88,7 +88,7 @@ Once installed, a skill is used **automatically** when the request matches it, o
 | stop cleanly now, resume later | `/pause`, then *"continue"* (`continue-work`) |
 | hand the work to another session | *"export the session"* (`export`) |
 | link sessions on two computers (files, requests) | `/session-link` (host on one, join on the other) |
-| follow a session from Discord, a file, an API or a port | `/session-log <webhook url or path...>`, `/session-log stop` |
+| follow a session from Discord, Telegram, the phone (ntfy), Slack, a file, an API or a port | `/session-log <url or path...>`, `/session-log stop` |
 | use my audio / image / video / 3D / VFX tools | `/setup-studio` once (scans, fills the gaps, generates `/studio`), then `/studio` |
 | free disk space | *"clean my computer"* (`computer-clean`) |
 
