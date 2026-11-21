@@ -1,8 +1,8 @@
 ---
 name: session-log
-description: Log the progress of the current Claude session to one or several places at once - a Discord webhook (one thread per session, a ping when a question or a permission waits, a status message edited in place, files attached), a file or a folder on the machine, an API (JSON POST, files uploaded), a TCP / UDP socket ip and port; the request received and the end of each turn summarized by Haiku, the steps, results, files and artefact links sent by Claude, the questions, permission waits and errors sent by Claude Code hooks. /session-log with one or several targets starts it, /session-log stop or close ends it; nothing given, what to log to is asked through interactive-questions (Discord recommended); its hooks are installed at the first launch once the user accepts, a refusal cancels. Use whenever the user wants to log, follow, mirror or report the progress of a session to Discord, a webhook, a file, an endpoint or a port, or summons /session-log.
+description: Log the progress of the current Claude session to one or several places at once - a Discord webhook (one thread per session, @here or the user mentioned on whatever waits for them - questions, permissions, the idle session, the end -, a status message edited in place, files attached), a file or a folder on the machine, an API (JSON POST, files uploaded), a TCP / UDP socket ip and port; the request received and the end of each turn summarized by Haiku, the steps, results, files and artefact links sent by Claude, the questions, permission waits and errors sent by Claude Code hooks. /session-log with one or several targets starts it, /session-log stop or close ends it; nothing given, what to log to is asked through interactive-questions (Discord recommended); its hooks are installed at the first launch once the user accepts, a refusal cancels. Use whenever the user wants to log, follow, mirror or report the progress of a session to Discord, a webhook, a file, an endpoint or a port, or summons /session-log.
 metadata:
-  summary: 'Logs the progress of the current session to one or several targets at once: a Discord webhook (one thread per session, a ping when a question or a permission waits, a status message edited in place, files attached), a file or a folder, an API (JSON POST, uploads), a TCP / UDP socket; Claude Code hooks send the request and the end of each turn (summarized by Haiku, no fork), the questions, permission waits and errors, Claude sends its steps, results, files and artefact links; `/session-log <target> <target>...` starts, `/session-log stop` ends, nothing given = a QCM (Discord recommended); the hooks installed at launch when missing, after asking (refused = no log).'
+  summary: 'Logs the progress of the current session to one or several targets at once: a Discord webhook (one thread per session, @here or the user mentioned on whatever waits for them - questions, permissions, the idle session, the end -, a status message edited in place, files attached), a file or a folder, an API (JSON POST, uploads), a TCP / UDP socket; Claude Code hooks send the request and the end of each turn (summarized by Haiku, no fork), the questions, permission waits and errors, Claude sends its steps, results, files and artefact links; `/session-log <target> <target>...` starts, `/session-log stop` ends, nothing given = a QCM (Discord recommended); the hooks installed at launch when missing, after asking (refused = no log).'
 ---
 
 # Session log: the progress of this session, sent where the user wants
@@ -25,7 +25,7 @@ web cannot run it: say so and stop there. Outbound only: to receive requests fro
 | `tcp://HOST:PORT`, `udp://HOST:PORT` (`ip:port` + the word tcp / udp) | a socket: one JSON line per event (`#format=text`: the readable lines) |
 | a path: `~/logs/work.log` (aligned text), `work.md` (a Markdown journal), `x.jsonl` (JSON lines), `~/logs/` (a folder: a Markdown journal + a copy of each file sent) | a file / a folder |
 | `discord`, `file`, `api`, `tcp`, `udp` alone | that kind, its value asked (section 2) |
-| `level=minimal|key|all`, `mention=<user id>` or `role:<id>`, `name=<name>` | options (per target: after `#`, ex: `<url>#mention=1234,level=all`) |
+| `level=minimal|key|all`, `mention=here|<user id>|role:<id>|no`, `name=<name>` | options (per target: after `#`, ex: `<url>#mention=1234,level=all`) |
 
 Other options after `#`: `thread=<id>` (Discord: write in that existing thread), `thread=no` (no thread), `maxmb=25` (Discord attachments, 10 by default), `upload` (JSON API: files
 in a multipart body), `header=Authorization:Bearer X` (API, several with `;`), `emoji=no` (no icons), `avatar=<url>|no` (Discord), `format=...`.
@@ -59,8 +59,14 @@ Then the values, each asked when not given (an option `Je la colle (Other)` to p
   (`~/.local/state/session-log/threads.json`) and used again - with the same status message - whenever this session
   logs there again (a new `start`, a resumed session); a thread deleted or locked is replaced by a new one. A **text**
   channel cannot get a thread from a webhook (Discord error 220003): recommend a forum channel, or a thread made by hand
-  in it with `#thread=<its id>` (right click > Copy Thread ID); `start` says it when it falls back to plain messages. Optional: the user's
-  Discord ID for the ping (Developer mode > right click on the name > Copy User ID). The URL is a password (anyone who
+  in it with `#thread=<its id>` (right click > Copy Thread ID); `start` says it when it falls back to plain messages.
+  **Mention**, asked with the URL: `@here (Recommended)` · `Un ID` (*Other*: the user's ID - Settings > Advanced >
+  Developer mode, then right click on the name > Copy User ID - or `role:<id>`) · `Pas de mention` -> `#mention=here`
+  (the default), `#mention=<id>`, `#mention=role:<id>`, `#mention=no`. Mentioned, with a short text the phone shows: the
+  questions (with their choices), the permissions (the tool and the exact command), the idle session (about a minute
+  after a turn with no answer), the end of a task, an error that blocks, the end of the log; `#ping=question+permission`
+  narrows it. A webhook only sends: answering stays in the terminal (receiving answers from Discord needs a bot, not
+  part of this skill). The URL is a password (anyone who
   has it can post there): never written in a repository or a shared place, kept `0600` by `log.py`.
 - **File**: the path (default `~/.local/state/session-log/logs/<project>.log`), `.jsonl` for JSON lines, a folder for copies.
 - **API**: the URL, a header if it needs a key, whether files are uploaded.
@@ -69,7 +75,7 @@ Then the values, each asked when not given (an option `Je la colle (Other)` to p
 **Hooks, checked at each launch** (before anything else, stop and list excepted): `log.py hooks show` (exit 3 = missing).
 Missing -> ask in the same popup as the rest: `Installer les hooks (Recommended)` · `Annuler`, saying what it does: they
 go in `~/.claude/settings.json` (a backup `settings.json.bak-session-log` next to it) for UserPromptSubmit, the
-AskUserQuestion questions, Notification, PostToolUseFailure, Stop, StopFailure, SessionEnd; they do nothing in a session
+AskUserQuestion questions, PermissionRequest, Notification, PostToolUseFailure, Stop, StopFailure, SessionEnd; they do nothing in a session
 without a running log. Accepted -> `log.py hooks install`, then go on. Refused -> **cancel**: no log is started, one line
 says so (`log.py start` refuses to run without them anyway). Installed now: this session sees them once the user opens
 `/hooks` (or from the next session) - say it; until then only what Claude sends leaves.
@@ -84,16 +90,16 @@ already had) - and prints `ok` (with its thread: new / reused / given) or `FAIL 
 and start it again. `start` again later adds targets to the running log. Tell the user in one line what is logged where.
 
 ## 4. While working (what Claude sends)
-The hooks send by themselves: the request (summarized by Haiku), the questions (with the ping), the permission waits,
-the errors of the tools (one per minute at `key`, the others counted), the end of each turn (summarized by Haiku), the end
-of the session. Claude adds what only it knows - one short line each, in the user's language:
+The hooks send by themselves: the request (summarized by Haiku), the questions (mentioned), the permissions asked (the
+tool and the command, mentioned), the errors of the tools (one per minute at `key`, the others counted, not mentioned),
+the end of each turn (summarized by Haiku), the idle session (mentioned), the end of the session. Claude adds what only it knows - one short line each, in the user's language:
 ```bash
 log.py send "Étape 2/4 : parser écrit et testé"                       # a step: "n/m" gives the progress bar everywhere
 log.py status "Rendu Blender en cours (≈ 6 min)"                      # a long step starting: the live status only
 log.py send "Rapport prêt" --file out/report.pdf                      # a result file (Discord: attached; folder: copied)
 log.py send "Maquette" --kind info --link https://claude.ai/...       # an artefact, a PR, a page: its link
 log.py send "Fait : ... ; reste : ..." --kind done                    # the end of the task: what, where, what is left
-log.py send "Bloqué : ... (raison)" --kind error                      # an error that stops the work
+log.py send "Bloqué : ... (raison)" --kind error                      # an error that stops the work (mentioned)
 ```
 - The key steps only (one Bash call each), never a message about the logging itself.
 - Never a secret, a key, a token, the content of a private file (`log.py` also hides the usual secret patterns), never

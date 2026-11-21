@@ -12,10 +12,11 @@
 SINK: a Discord webhook URL, an https:// address (an API: Slack, ntfy, Gotify, Telegram read from the address, else one
 JSON record per event), tcp://HOST:PORT or udp://HOST:PORT (one JSON line per event), a file (.log: aligned text, .md:
 a Markdown journal, .jsonl: JSON lines), a folder ending with / (a Markdown journal + a copy of each file sent).
-Options after #, comma separated: level=minimal|key|all, mention=<user id>|role:<id> (Discord ping when a question or a
-permission waits; Slack: <!here> or <@U...>), thread=no, maxmb=N (Discord attachments, 10 by default), upload (JSON API:
-files in a multipart body), header=Name:Value;Name:Value (API), format=json|slack|ntfy|gotify|telegram|text (API),
-format=json|text (socket), emoji=no (no icons).
+Options after #, comma separated: level=minimal|key|all, mention=here|<user id>|role:<id>|no (Discord: who is pinged
+on what waits for the user - questions, permissions, the idle session, done, a blocking error, the end; here by default;
+Slack: <!here> or <@U...>), ping=question+permission+waiting+done+error+stop (the kinds that ping), thread=<id>|no,
+maxmb=N (Discord attachments, 10 by default), upload (JSON API: files in a multipart body), header=Name:Value;Name:Value
+(API), format=json|slack|ntfy|gotify|telegram|text (API), format=json|text (socket), emoji=no (no icons), avatar=<url>|no.
 The session is $CLAUDE_CODE_SESSION_ID (--session for another); the state is in ~/.local/state/session-log/<session>/
 ($SESSION_LOG_DIR), the config 0600 (a webhook URL is a secret). Events are queued and sent in order by one worker in
 the background; the request and the end of each turn are summarized by Haiku (claude -p, a separate process, no fork).
@@ -43,35 +44,35 @@ AVATAR = "https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/skills/ai/se
 STATE = Path(os.environ.get("SESSION_LOG_DIR", Path.home() / ".local" / "state" / "session-log")).expanduser()
 SETTINGS = Path(os.environ.get("SESSION_LOG_SETTINGS", Path.home() / ".claude" / "settings.json")).expanduser()
 DISCORD = re.compile(r"^https?://[^/]+/api(?:/v\d+)?/webhooks/\d+/[\w-]+$")
-LEVELS = {"minimal": {"start", "stop", "done", "question", "waiting", "error"}}
+LEVELS = {"minimal": {"start", "stop", "done", "question", "permission", "waiting", "error"}}
 LEVELS["key"] = LEVELS["minimal"] | {"request", "step", "file", "turn", "info"}
 LEVELS["all"] = LEVELS["key"] | {"status"}
-PING = ("question", "waiting")
-COLOURS = {"start": 0x5865F2, "stop": 0x747F8D, "request": 0x3B82F6, "step": 0x22C55E, "done": 0x8B5CF6, "question": 0xF59E0B,
+PING = ("question", "permission", "waiting", "done", "error", "stop")  # what waits for the user (or ends): mentioned
+COLOURS = {"start": 0x5865F2, "stop": 0x747F8D, "request": 0x3B82F6, "step": 0x22C55E, "done": 0x8B5CF6, "question": 0xF59E0B, "permission": 0xF97316,
            "waiting": 0xF59E0B, "error": 0xEF4444, "turn": 0x14B8A6, "file": 0x06B6D4, "info": 0x94A3B8, "status": 0x64748B}
-ICONS = {"start": "🟢", "stop": "💤", "request": "💬", "step": "✅", "done": "🏁", "question": "❓", "waiting": "⏳",
+ICONS = {"start": "🟢", "stop": "💤", "request": "💬", "step": "✅", "done": "🏁", "question": "❓", "permission": "🔐", "waiting": "⏳",
          "error": "❌", "turn": "🔁", "file": "📎", "info": "📌", "link": "🔗", "status": "📊"}
 STATES = {  # the live status: state -> (icon, colour); the state comes from the last event
     "working": ("🔵", 0x3B82F6), "waiting": ("🟠", 0xF59E0B), "question": ("🟠", 0xF59E0B), "error": ("🔴", 0xEF4444),
     "done": ("🟢", 0x22C55E), "stopped": ("💤", 0x747F8D)}
-STATE_OF = {"turn": "waiting", "waiting": "waiting", "question": "question", "error": "error", "done": "done", "stop": "stopped"}
+STATE_OF = {"turn": "waiting", "waiting": "waiting", "permission": "waiting", "question": "question", "error": "error", "done": "done", "stop": "stopped"}
 STEP = re.compile(r"^\s*(?:(?:étape|etape|step)\s*)?(\d+)\s*/\s*(\d+)\s*[:·.-]?\s*(.*)$", re.I | re.S)  # "Étape 2/4 : ..."
 IMAGE = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 API_FORMATS = ("json", "slack", "ntfy", "gotify", "telegram", "text")
-URGENT = ("question", "waiting", "error")  # a higher priority where the destination has one (ntfy, Gotify)
+URGENT = ("question", "permission", "waiting", "error")  # a higher priority where the destination has one (ntfy, Gotify)
 LABELS = {
     "fr": {"start": "Connexion établie", "restart": "Connexion rétablie", "stop": "Fin du log", "request": "Demande reçue", "step": "Étape", "done": "Terminé",
-           "question": "Question en attente", "waiting": "En attente", "error": "Erreur", "turn": "Fin de tour", "file": "Fichier",
+           "question": "Question en attente", "permission": "Permission demandée", "waiting": "Claude t'attend", "error": "Erreur", "turn": "Fin de tour", "file": "Fichier",
            "info": "Info", "status": "Statut", "steps": "Étapes", "errors": "Erreurs", "files": "Fichiers", "last": "Dernière activité",
            "started_at": "Démarré", "duration": "Durée", "folder": "Dossier", "level": "Niveau", "targets": "Cibles",
            "more_errors": "autres erreurs", "too_big": "trop gros pour être joint", "open": "Ouvrir",
-           "working": "En cours", "waiting_you": "En attente de toi", "stopped": "Arrêté", "answer": "Réponds dans la session"},
+           "working": "En cours", "waiting_you": "En attente de toi", "stopped": "Arrêté", "answer": "Réponds dans la session", "idle": "La session attend ton prochain message"},
     "en": {"start": "Connected", "restart": "Reconnected", "stop": "Log ended", "request": "Request received", "step": "Step", "done": "Done",
-           "question": "Question waiting", "waiting": "Waiting", "error": "Error", "turn": "End of turn", "file": "File",
+           "question": "Question waiting", "permission": "Permission needed", "waiting": "Claude is waiting", "error": "Error", "turn": "End of turn", "file": "File",
            "info": "Info", "status": "Status", "steps": "Steps", "errors": "Errors", "files": "Files", "last": "Last activity",
            "started_at": "Started", "duration": "Duration", "folder": "Folder", "level": "Level", "targets": "Targets",
            "more_errors": "more errors", "too_big": "too big to attach", "open": "Open",
-           "working": "Working", "waiting_you": "Waiting for you", "stopped": "Stopped", "answer": "Answer in the session"},
+           "working": "Working", "waiting_you": "Waiting for you", "stopped": "Stopped", "answer": "Answer in the session", "idle": "The session waits for your next message"},
 }
 SECRETS = [
     (re.compile(r"https?://[^\s/]+/api(?:/v\d+)?/webhooks/\d+/[\w-]+"), "[webhook]"),
@@ -79,8 +80,8 @@ SECRETS = [
     (re.compile(r"\b(sk-[\w-]{20,}|gh[pousr]_\w{20,}|xox[abprs]-[\w-]{10,}|AKIA[0-9A-Z]{16}|eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]+)"), "[hidden]"),
     (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S), "[private key]"),
 ]
-HOOK_EVENTS = [("UserPromptSubmit", None), ("PreToolUse", "AskUserQuestion"), ("Notification", None), ("PostToolUseFailure", None),
-               ("Stop", None), ("StopFailure", None), ("SessionEnd", None)]
+HOOK_EVENTS = [("UserPromptSubmit", None), ("PreToolUse", "AskUserQuestion"), ("PermissionRequest", None), ("Notification", None),
+               ("PostToolUseFailure", None), ("Stop", None), ("StopFailure", None), ("SessionEnd", None)]
 ERROR_GAP = 60  # seconds: at level key, one error message per minute, the others counted in the status
 AGENT = "session-log/1.0"
 
@@ -309,7 +310,7 @@ def embed_of(sink: dict, event: dict, config: dict, words: dict, status: dict | 
     elif kind == "question":
         choices = event.get("choices", [])
         description = text + ("\n\n" + "\n".join(f"**{n}.** {c}" for n, c in enumerate(choices, 1)) if choices else "") + f"\n-# {words['answer']}"
-    elif kind == "waiting":
+    elif kind in ("waiting", "permission"):
         description = f"{text}\n-# {words['answer']}"
     if kind == "start":
         fields = [{"name": words["folder"], "value": f"`{config['cwd'][-200:]}`", "inline": False},
@@ -347,12 +348,12 @@ def discord(sink: dict, event: dict, config: dict, words: dict, status: dict | N
     channel gets one post per session at the first message, a text channel falls back to plain messages."""
     embed, files = embed_of(sink, event, config, words, status)
     payload: dict = {"username": f"Claude · {config['name']}"[:80], "embeds": [embed], "allowed_mentions": {"parse": []}, **avatar(sink)}
-    mention = sink["options"].get("mention", "")
-    if event["kind"] in PING and mention:
-        role = mention.startswith("role:")
-        target = mention.split(":", 1)[1] if role else mention
-        payload["content"] = f"<@&{target}>" if role else f"<@{target}>"
-        payload["allowed_mentions"] = {"roles": [target]} if role else {"users": [target]}
+    tag, allowed = mention_of(sink, event)
+    if tag:  # the mention and a short text: what the push notification shows (an embed is not shown there)
+        snippet = re.sub(r"\s+", " ", restyle(event["text"], "plain").replace("`", "")).strip()
+        label = event.get("title") or words.get(event["kind"], event["kind"])
+        payload["content"] = f"{tag} {icon(sink, event['kind'])}{label}" + (f" · {snippet[:160]}" if snippet else "")
+        payload["allowed_mentions"] = allowed
     def body() -> tuple[bytes, str]:
         return multipart({"payload_json": json.dumps(payload)}, files, "files") if files else (json.dumps(payload).encode(), "application/json")
 
@@ -404,6 +405,19 @@ def probe(sink: dict) -> str:
         if "50006" in str(error):
             return "forum"
     return ""
+
+def mention_of(sink: dict, event: dict) -> tuple[str, dict]:
+    """Who is mentioned on an event that waits for the user (#mention=here by default, an id, role:<id>, no) and the
+    allowed_mentions that lets exactly that one ping; ("", {}) when the event pings nobody (#ping=kind+kind narrows)."""
+    mention = sink["options"].get("mention", "here")
+    kinds = sink["options"].get("ping", "+".join(PING)).split("+")
+    if mention == "no" or event["kind"] not in kinds or event.get("quiet"):
+        return "", {"parse": []}
+    if mention in ("here", "everyone"):
+        return f"@{mention}", {"parse": ["everyone"]}
+    if mention.startswith("role:"):
+        return f"<@&{mention[5:]}>", {"roles": [mention[5:]]}
+    return f"<@{mention}>", {"users": [mention]}
 
 def thread_name(config: dict) -> str:
     """The name of the thread: the session name, with the short session id when the name does not have it."""
@@ -686,6 +700,8 @@ def process(base: Path, event: dict) -> None:
         return
     if event.get("summarize") and config.get("summary", True):
         event["text"] = summarize(event["text"], event["summarize"], config["lang"])
+    if event.get("idle"):
+        event["text"] = LABELS[config["lang"]]["idle"]
     event["text"] = redact(event["text"])
     status_file = base / "status.json"
     status: dict = json.loads(status_file.read_text(encoding="utf-8")) if status_file.is_file() else {"steps": 0, "errors": 0, "folded": 0, "last_error": 0}
@@ -698,7 +714,8 @@ def process(base: Path, event: dict) -> None:
     folded = False
     if kind == "error":
         status["errors"] += 1
-        folded = config["level"] != "all" and time.time() - status.get("last_error", 0) < ERROR_GAP
+        # the failed tools are grouped (one a minute at key); an error that blocks the work is always sent, with the count
+        folded = bool(event.get("quiet")) and config["level"] != "all" and time.time() - status.get("last_error", 0) < ERROR_GAP
         status["folded"] = status.get("folded", 0) + folded
         if not folded:
             status["last_error"] = time.time()
@@ -789,14 +806,21 @@ def from_hook(data: dict) -> dict | None:
         choices = [o.get("label", "") + (f" · *{o['description'][:120]}*" if o.get("description") else "")
                    for q in questions[:1] for o in q.get("options", [])]
         return {"kind": "question", "text": text, "choices": choices}
+    if name == "PermissionRequest":  # what exactly waits for an approval (the Notification only names the tool)
+        tool, given = str(data.get("tool_name", "tool")), data.get("tool_input", {}) or {}
+        detail = given.get("command") or given.get("file_path") or given.get("notebook_path") or given.get("url") or given.get("pattern") \
+            or json.dumps(given, ensure_ascii=False)[:300]
+        return {"kind": "permission", "text": f"**{tool}**\n```\n{str(detail)[:900]}\n```"}
     if name == "Notification":
         message = str(data.get("message", ""))
-        waiting = "permission" in message.lower() or data.get("notification_type") == "permission_prompt"
-        return {"kind": "waiting" if waiting else "status", "text": message}
-    if name == "PostToolUseFailure":
+        if "permission" in message.lower() or data.get("notification_type") == "permission_prompt":
+            return None  # PermissionRequest already said it, with the command
+        idle = data.get("notification_type") == "idle_prompt" or "waiting for your input" in message.lower()
+        return {"kind": "waiting", "text": message, "idle": True} if idle else {"kind": "status", "text": message}
+    if name == "PostToolUseFailure":  # a tool that failed: logged, no mention (Claude goes on; a real block is sent as an error)
         error = str(data.get("error") or data.get("tool_response") or "")
         first = error.strip().splitlines()[0][:300] if error.strip() else "failed"
-        return {"kind": "error", "text": f"{data.get('tool_name', 'tool')}: {first}"}
+        return {"kind": "error", "text": f"{data.get('tool_name', 'tool')}: {first}", "quiet": True}
     if name == "Stop" and not data.get("stop_hook_active"):
         text = str(data.get("last_assistant_message") or last_reply(data.get("transcript_path", "")))
         return {"kind": "turn", "text": text, "summarize": "turn"} if text.strip() else None
