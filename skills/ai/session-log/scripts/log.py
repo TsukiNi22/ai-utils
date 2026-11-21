@@ -37,6 +37,7 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).absolute()
 STATE = Path(os.environ.get("SESSION_LOG_DIR", Path.home() / ".local" / "state" / "session-log")).expanduser()
+SETTINGS = Path(os.environ.get("SESSION_LOG_SETTINGS", Path.home() / ".claude" / "settings.json")).expanduser()
 DISCORD = re.compile(r"^https?://[^/]+/api(?:/v\d+)?/webhooks/\d+/[\w-]+$")
 LEVELS = {"minimal": {"start", "stop", "done", "question", "waiting", "error"}}
 LEVELS["key"] = LEVELS["minimal"] | {"request", "step", "file", "turn", "info"}
@@ -479,19 +480,28 @@ def hook() -> None:
     except (OSError, ValueError):
         return
 
+def mine(entry: dict) -> bool:
+    """A hook entry of session-log (whatever the path the script was installed from)."""
+    return any("session-log" in h.get("command", "") and h.get("command", "").endswith(" hook") for h in entry.get("hooks", []))
+
+def hooked(file: Path) -> list[str]:
+    """The events whose session-log hook is in a settings file."""
+    try:
+        hooks = json.loads(file.read_text(encoding="utf-8")).get("hooks", {}) if file.is_file() else {}
+    except ValueError:
+        return []
+    return [name for name, entries in hooks.items() if any(mine(e) for e in entries)]
+
 def settings_hooks(action: str, file: Path) -> None:
     """Add / remove / show the hooks of session-log in a Claude Code settings file (a backup first)."""
     settings = json.loads(file.read_text(encoding="utf-8")) if file.is_file() else {}
     hooks = settings.setdefault("hooks", {})
     command = f"python3 {SCRIPT} hook"
-
-    def mine(entry: dict) -> bool:
-        return any("session-log" in h.get("command", "") and h.get("command", "").endswith(" hook") for h in entry.get("hooks", []))
-
-    present = [name for name, entries in hooks.items() if any(mine(e) for e in entries)]
+    present = hooked(file)
     if action == "show":
-        print(f"{file}: session-log hooks on {', '.join(present) if present else 'nothing'} ({command})")
-        return
+        missing = [name for name, _ in HOOK_EVENTS if name not in present]
+        print(f"{file}: session-log hooks " + ("installed" if not missing else f"MISSING on {', '.join(missing)}") + f" ({command})")
+        sys.exit(0 if not missing else 3)
     if file.is_file():
         shutil.copy2(file, file.with_name(file.name + ".bak-session-log"))
     for name in list(hooks):
@@ -510,6 +520,10 @@ def settings_hooks(action: str, file: Path) -> None:
 
 # ======================================================================= commands
 def start(args: argparse.Namespace, session: str) -> None:
+    missing = [name for name, _ in HOOK_EVENTS if name not in hooked(SETTINGS)]
+    if missing:  # the hooks are part of the log: ask the user to install them, a refusal cancels the log
+        sys.exit(f"session-log: hooks not installed in {SETTINGS} ({', '.join(missing)}): ask the user, then "
+                 "`log.py hooks install`; refused -> no log is started")
     base = folder(session)
     with Locked(base / "config.lock"):
         config = load(base) or {"session": session, "name": args.name or f"{Path.cwd().name} · {session[:8]}", "cwd": str(Path.cwd()),
@@ -535,9 +549,6 @@ def start(args: argparse.Namespace, session: str) -> None:
         current["sinks"] = [by_id.get(s["id"], s) for s in current["sinks"]]
         save(base, current)
     print(f"session {session[:8]} · level {config['level']} · {len(current['sinks'])} sink(s)" + (f" · {failed} failed" if failed else ""))
-    settings = Path.home() / ".claude" / "settings.json"
-    if not (settings.is_file() and f"{SCRIPT} hook" in settings.read_text(encoding="utf-8", errors="ignore")):
-        print("hooks not installed: only what Claude sends is logged (log.py hooks install)")
     if failed:
         sys.exit(1)
 
@@ -566,7 +577,7 @@ def main() -> None:
     sub.add_parser("list", help="the sinks of this session and the last errors")
     five = sub.add_parser("hooks", help="install / remove / show the Claude Code hooks")
     five.add_argument("action", choices=["install", "uninstall", "show"])
-    five.add_argument("--settings", default=str(Path.home() / ".claude" / "settings.json"))
+    five.add_argument("--settings", default=str(SETTINGS))
     sub.add_parser("hook")
     six = sub.add_parser("_worker")
     six.add_argument("worker_session")

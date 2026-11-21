@@ -1,8 +1,8 @@
 ---
 name: session-log
-description: Log the progress of the current Claude session to one or several places at once - a Discord webhook (one thread per session, a ping when a question or a permission waits, a status message edited in place, files attached), a file or a folder on the machine, an API (JSON POST, files uploaded), a TCP / UDP socket ip and port; the request received and the end of each turn summarized by Haiku, the steps, results, files and artefact links sent by Claude, the questions, permission waits and errors sent by Claude Code hooks. /session-log with one or several targets starts it, /session-log stop or close ends it; nothing given, what to log to is asked through interactive-questions (Discord recommended). Use whenever the user wants to log, follow, mirror or report the progress of a session to Discord, a webhook, a file, an endpoint or a port, or summons /session-log.
+description: Log the progress of the current Claude session to one or several places at once - a Discord webhook (one thread per session, a ping when a question or a permission waits, a status message edited in place, files attached), a file or a folder on the machine, an API (JSON POST, files uploaded), a TCP / UDP socket ip and port; the request received and the end of each turn summarized by Haiku, the steps, results, files and artefact links sent by Claude, the questions, permission waits and errors sent by Claude Code hooks. /session-log with one or several targets starts it, /session-log stop or close ends it; nothing given, what to log to is asked through interactive-questions (Discord recommended); its hooks are installed at the first launch once the user accepts, a refusal cancels. Use whenever the user wants to log, follow, mirror or report the progress of a session to Discord, a webhook, a file, an endpoint or a port, or summons /session-log.
 metadata:
-  summary: 'Logs the progress of the current session to one or several targets at once: a Discord webhook (one thread per session, a ping when a question or a permission waits, a status message edited in place, files attached), a file or a folder, an API (JSON POST, uploads), a TCP / UDP socket; Claude Code hooks send the request and the end of each turn (summarized by Haiku, no fork), the questions, permission waits and errors, Claude sends its steps, results, files and artefact links; `/session-log <target> <target>...` starts, `/session-log stop` ends, nothing given = a QCM (Discord recommended).'
+  summary: 'Logs the progress of the current session to one or several targets at once: a Discord webhook (one thread per session, a ping when a question or a permission waits, a status message edited in place, files attached), a file or a folder, an API (JSON POST, uploads), a TCP / UDP socket; Claude Code hooks send the request and the end of each turn (summarized by Haiku, no fork), the questions, permission waits and errors, Claude sends its steps, results, files and artefact links; `/session-log <target> <target>...` starts, `/session-log stop` ends, nothing given = a QCM (Discord recommended); the hooks installed at launch when missing, after asking (refused = no log).'
 ---
 
 # Session log: the progress of this session, sent where the user wants
@@ -18,6 +18,7 @@ web cannot run it: say so and stop there. Outbound only: to receive requests fro
 |---|---|
 | `stop`, `close`, `off`, `fin` (+ `s2`) | stop every target (or that one): section 5 |
 | `status`, `list` | `log.py list`: the targets of this session and the last errors |
+| `uninstall` | `log.py hooks uninstall`: the hooks out of `~/.claude/settings.json` |
 | a Discord webhook URL (`https://discord.com/api/webhooks/...`) | Discord |
 | another `https://...` | an API: one JSON POST per event |
 | `tcp://HOST:PORT`, `udp://HOST:PORT` (`ip:port` + the word tcp / udp) | a socket: one JSON line per event |
@@ -44,15 +45,18 @@ Then the values, each asked when not given (an option `Je la colle (Other)` to p
 - **API**: the URL, a header if it needs a key, whether files are uploaded.
 - **Socket**: host, port, TCP or UDP. Any target outside this computer receives summaries of the requests: say it once.
 
-Hooks, first use only (`log.py hooks show` lists none): ask `Installer les hooks (Recommended)` · `Sans hooks`. They go in
-`~/.claude/settings.json` (a backup next to it) for UserPromptSubmit, the AskUserQuestion questions, Notification,
-PostToolUseFailure, Stop, StopFailure, SessionEnd; they do nothing in a session without a running log, and act from the
-next session (or once `/hooks` has been opened). Without them, only what Claude sends is logged.
+**Hooks, checked at each launch** (before anything else, stop and list excepted): `log.py hooks show` (exit 3 = missing).
+Missing -> ask in the same popup as the rest: `Installer les hooks (Recommended)` · `Annuler`, saying what it does: they
+go in `~/.claude/settings.json` (a backup `settings.json.bak-session-log` next to it) for UserPromptSubmit, the
+AskUserQuestion questions, Notification, PostToolUseFailure, Stop, StopFailure, SessionEnd; they do nothing in a session
+without a running log. Accepted -> `log.py hooks install`, then go on. Refused -> **cancel**: no log is started, one line
+says so (`log.py start` refuses to run without them anyway). Installed now: this session sees them once the user opens
+`/hooks` (or from the next session) - say it; until then only what Claude sends leaves.
 
 ## 3. Start
 ```bash
+log.py hooks show || log.py hooks install    # only after the user accepted (section 2)
 log.py start <target> [<target>...] [--name "<project> · <task>"] [--level key] [--text "<what this session is about>"]
-log.py hooks install            # once, when accepted
 ```
 Each target gets its first message at once: `ok` or `FAIL <why>` per target (a wrong URL, a closed port); fix and start
 it again. `start` again later adds targets to the running log. Tell the user in one line what is logged where.
@@ -75,7 +79,8 @@ log.py send "Bloqué : ... (raison)" --kind error                      # an erro
 
 ## 5. Stop
 `/session-log stop` -> `log.py stop [s2] --text "<short summary of the session>"`: a last message, then that target (or
-all) stops; the end of the session stops it too. The hooks stay installed and idle; `log.py hooks uninstall` removes them.
+all) stops; the end of the session stops it too. The hooks stay installed and idle (no running log = nothing done);
+`/session-log uninstall` -> `log.py hooks uninstall` removes them.
 
 ## How it works
 - State: `~/.local/state/session-log/<session id>/` (`config.json` `0600`, the queue, `errors.log`); the session is
