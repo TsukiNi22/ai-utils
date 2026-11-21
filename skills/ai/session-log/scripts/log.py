@@ -49,11 +49,11 @@ LEVELS["all"] = LEVELS["key"] | {"status"}
 PING = ("question", "waiting")
 COLOURS = {"start": 0x5865F2, "stop": 0x747F8D, "request": 0x3B82F6, "step": 0x22C55E, "done": 0x8B5CF6, "question": 0xF59E0B,
            "waiting": 0xF59E0B, "error": 0xEF4444, "turn": 0x14B8A6, "file": 0x06B6D4, "info": 0x94A3B8, "status": 0x64748B}
-ICONS = {"start": "🟢", "stop": "⬛", "request": "💬", "step": "✅", "done": "🏁", "question": "❓", "waiting": "⏳",
+ICONS = {"start": "🟢", "stop": "💤", "request": "💬", "step": "✅", "done": "🏁", "question": "❓", "waiting": "⏳",
          "error": "❌", "turn": "🔁", "file": "📎", "info": "📌", "link": "🔗", "status": "📊"}
 STATES = {  # the live status: state -> (icon, colour); the state comes from the last event
     "working": ("🔵", 0x3B82F6), "waiting": ("🟠", 0xF59E0B), "question": ("🟠", 0xF59E0B), "error": ("🔴", 0xEF4444),
-    "done": ("🟢", 0x22C55E), "stopped": ("⚪", 0x747F8D)}
+    "done": ("🟢", 0x22C55E), "stopped": ("💤", 0x747F8D)}
 STATE_OF = {"turn": "waiting", "waiting": "waiting", "question": "question", "error": "error", "done": "done", "stop": "stopped"}
 STEP = re.compile(r"^\s*(?:(?:étape|etape|step)\s*)?(\d+)\s*/\s*(\d+)\s*[:·.-]?\s*(.*)$", re.I | re.S)  # "Étape 2/4 : ..."
 IMAGE = (".png", ".jpg", ".jpeg", ".gif", ".webp")
@@ -194,7 +194,7 @@ def shown(sink: dict) -> str:
         return f"{sink['kind']}://{sink['host']}:{sink['port']}"
     return sink["path"] + ("/" if sink["kind"] == "dir" else "")
 
-def request(method: str, url: str, body: bytes, kind: str, headers: dict | None = None) -> dict:
+def request(method: str, url: str, body: bytes | None, kind: str, headers: dict | None = None) -> dict:
     """One HTTP call; a 429 waits the time asked (3 tries). The JSON answer, {} when there is none."""
     for _ in range(3):
         call = urllib.request.Request(url, data=body, method=method, headers={"Content-Type": kind, "User-Agent": AGENT, **(headers or {})})
@@ -383,6 +383,27 @@ def discord(sink: dict, event: dict, config: dict, words: dict, status: dict | N
     if answer.get("id"):
         sink.setdefault("posted", []).append((answer["id"], sink.get("thread_id")))
     sink["started"] = True
+
+def probe(sink: dict) -> str:
+    """What the Discord webhook writes into, found without posting anything: the webhook itself (deleted -> an error),
+    then a message with a thread name and no content - a forum / media channel refuses it as empty (50006), a text or
+    announcement channel refuses the thread (220003). "forum", "text", or "" when the answer says neither (the first
+    message then tries a thread and falls back)."""
+    try:
+        info = request("GET", sink["url"], None, "application/json")
+    except RuntimeError as error:
+        if "HTTP 404" in str(error):
+            raise RuntimeError("unknown webhook (deleted, or the channel was deleted): make a new one") from None
+        raise
+    sink["channel"] = info.get("channel_id", "")
+    try:
+        request("POST", sink["url"] + "?wait=true", json.dumps({"thread_name": "session-log probe"}).encode(), "application/json")
+    except RuntimeError as error:
+        if "220003" in str(error):
+            return "text"
+        if "50006" in str(error):
+            return "forum"
+    return ""
 
 def thread_name(config: dict) -> str:
     """The name of the thread: the session name, with the short session id when the name does not have it."""
@@ -878,10 +899,19 @@ def start(args: argparse.Namespace, session: str) -> None:
     for sink in new:  # the first message right away: a wrong address is said now, not later
         title = ""
         if sink["kind"] == "discord":
+            try:
+                sink["channel_type"] = probe(sink)
+            except RuntimeError as error:
+                failed += 1
+                sink["failed"] = True
+                print(f"FAIL {sink['id']} {sink['kind']:7} {shown(sink)}: {error}")
+                continue
+            if sink["channel_type"] == "text" and not sink["options"].get("thread", "").isdigit():
+                sink["thread_state"] = "text-channel"  # no thread_name tried: plain messages in the channel
             given = sink["options"].get("thread", "")
             entry = threads().get(hook_id(sink), {}).get(session, {})
             known = entry.get("thread") or ""
-            if given.isdigit() or known:  # a thread given, or the one this session already has: written there again
+            if given.isdigit() or (known and sink["channel_type"] != "text"):  # a thread given / the one of this session
                 sink["thread_id"], sink["thread_state"] = (given, "given") if given.isdigit() else (known, "reused")
                 if sink["thread_state"] == "reused" and entry.get("status"):
                     sink["status_id"] = entry["status"]  # the same dashboard, edited again
@@ -892,24 +922,35 @@ def start(args: argparse.Namespace, session: str) -> None:
             print(f"ok   {sink['id']} {sink['kind']:7} {shown(sink)}" + thread_note(sink))
         except (RuntimeError, OSError, ValueError) as error:
             failed += 1
+            sink["failed"] = True
             print(f"FAIL {sink['id']} {sink['kind']:7} {shown(sink)}: {error}")
     remember(base, new)
     with Locked(base / "config.lock"):
         current = load(base) or config
         by_id = {s["id"]: s for s in new}
-        current["sinks"] = [by_id.get(s["id"], s) for s in current["sinks"]]
-        save(base, current)
+        # a target that failed is left out: started again once fixed, it is not there twice
+        current["sinks"] = [by_id.get(s["id"], s) for s in current["sinks"] if not by_id.get(s["id"], {}).get("failed")]
+        if current["sinks"]:
+            save(base, current)
+        else:
+            (base / "config.json").unlink(missing_ok=True)
     print(f"session {session[:8]} · level {config['level']} · {len(current['sinks'])} sink(s)" + (f" · {failed} failed" if failed else ""))
     if failed:
         sys.exit(1)
 
 def thread_note(sink: dict) -> str:
     state = sink.get("thread_state", "")
+    kind = {"forum": "  forum channel", "text": "  text channel"}.get(sink.get("channel_type", ""), "")
+    if state != "text-channel" and kind:
+        return kind + thread_note_rest(sink, state)
+    return thread_note_rest(sink, state)
+
+def thread_note_rest(sink: dict, state: str) -> str:
     if state == "text-channel":
         return ("\n     no thread: a text channel (a webhook makes threads in a forum channel only) - a forum channel's webhook,"
                 " or a thread made by hand there and #thread=<its id>")
     notes = {"new": "new thread", "reused": "the thread of this session, reused", "given": "the thread given", "lost": "its thread was gone: a new one"}
-    return f"  ({notes.get(state, state)} {sink.get('thread_id', '')})" if state else ""
+    return f" ({notes.get(state, state)} {sink.get('thread_id', '')})" if state else ""
 
 def clear(session: str) -> None:
     """Delete every Discord message the log of this session posted (posted.jsonl + the status messages), even after a

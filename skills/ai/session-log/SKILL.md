@@ -52,7 +52,9 @@ Nothing given: one popup -
    `Minimal` (start, end, errors, questions; the steps only in the status) · `Tout` (every error, the status changes too).
 
 Then the values, each asked when not given (an option `Je la colle (Other)` to paste it):
-- **Discord**: the webhook URL - channel settings > Integrations > Webhooks > New webhook > Copy URL. **One thread per
+- **Discord**: the webhook URL - channel settings > Integrations > Webhooks > New webhook > Copy URL. `start` finds by
+  itself, without posting anything, what the webhook writes into (forum / text channel) and whether it still exists (a
+  deleted webhook fails at once and is left out). **One thread per
   session by default**: in a **forum** channel the thread is made at the first message, remembered
   (`~/.local/state/session-log/threads.json`) and used again - with the same status message - whenever this session
   logs there again (a new `start`, a resumed session); a thread deleted or locked is replaced by a new one. A **text**
@@ -98,7 +100,7 @@ log.py send "Bloqué : ... (raison)" --kind error                      # an erro
   the whole diff: names and results.
 
 ## 5. Stop
-`/session-log stop` -> `log.py stop [s2] --text "<short summary of the session>"`: a last message **Fin du log** (duration,
+`/session-log stop` -> `log.py stop [s2] --text "<short summary of the session>"`: a last message 💤 **Fin du log** (duration,
 steps, errors, files), the status turns to *Arrêté*, then that target (or all) stops; the end of the session stops it too.
 `/session-log clear` -> `log.py clear`: every Discord message the log of this session posted is deleted (their ids are kept
 in `posted.jsonl`, `0600`); a webhook cannot read the channel, so only those it posted itself. The hooks stay installed and idle (no running log = nothing done);
