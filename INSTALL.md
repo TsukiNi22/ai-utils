@@ -115,7 +115,7 @@ handy on another machine or in a Claude Code on the web session:
 | `ux-skills` | color-modes-project, color-modes-website, multilingual-project, multilingual-website |
 | `studio-skills` | setup-studio |
 | `system-skills` | computer-clean |
-| `ai-skills` | ask-at-end, clarify, continue-work, export, full-permission, ideation, interactive-questions, onboard, pause, presentation, rtk, session-link, setup-context, write-like-me |
+| `ai-skills` | ask-at-end, clarify, continue-work, export, full-permission, ideation, interactive-questions, onboard, pause, presentation, rtk, session-link, session-log, setup-context, write-like-me |
 | `dev`, `audit`, `cpp`, `doc`, `git`, `legal`, `python`, `setup-project`, `style` | the routers (`/dev`, `/audit`...) |
 <!-- /generated:plugins -->
 
