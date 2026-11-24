@@ -22,8 +22,9 @@ metadata:
 only, Linux / macOS / Windows. `interactive-questions` (a skill) = the folder of that skill, for the setup questions.
 
 A direct MCP call puts its whole result in the context and costs one turn; a script run by codemode calls the same
-tools and returns only what it prints. Measured on real servers (ffmpeg, kdenlive, godot): 49,500 -> 11,900 tokens over
-8 tasks, but a single small call costs 3x more than a direct one: **choose per task** (section 3).
+tools and returns only what it prints. Measured with Opus 5.5 on 4 real tasks (ffmpeg, kdenlive, godot, blender): -64 %
+tokens and -39 % cost; nothing gained on a server whose own tool already runs code (Blender), and a single small call
+costs more than a direct one: **choose per task** (section 3).
 
 | Where | What works |
 |---|---|

@@ -18,19 +18,18 @@ already declared on a computer, with nothing to host.
 The *Installs with it* column comes from each `requires.txt`: `./setup.sh install <skill>` installs them too.
 
 ## What it saves
-Measured on real servers (ffmpeg, kdenlive, godot), tokens added to the context, discovery included:
+Claude Code with Opus 5.5 doing each task, tokens the task added to the context and cost (from the API usage):
 
-| Task | Direct calls | Code mode |
-|---|---:|---:|
-| media inventory of 20 files (20 calls) | 26,155 | 2,005 (-92 %) |
-| a Godot scene built node by node (10 calls in sequence, 11 turns) | 5,990 | 1,401 (-77 %, 2 turns) |
-| a Kdenlive montage (36 calls, 7 turns) | 6,453 | 2,981 (-54 %, 3 turns) |
-| one small call | 165 | 523 (+217 %) |
+| Task | Direct calls | Codemode MCP | Skill, command line |
+|---|---:|---:|---:|
+| media inventory, 20 files | 48,841, $0.70 | 8,161 (-83 %), $0.27 | 5,414 (-89 %), $0.29 |
+| Kdenlive montage, 15 clips | 16,054, $0.49 | 10,940 (-32 %), $0.35 | 10,127 (-37 %), $0.44 |
+| Godot scene, 10 nodes | 13,605, $0.42 | 4,566 (-66 %), $0.24 | 3,199 (-76 %), $0.27 |
+| Blender, 30 objects | 6,716, $0.30 | 6,793 (+1 %), $0.30 | 3,988 (-41 %), $0.30 |
 
 > [!NOTE]
-> The last line is why the skill chooses per task: a single small call stays direct, a loop, a chain or a big result
-> goes through a script. The 533 tool definitions of those 7 servers cost 92,290 tokens when loaded upfront; the four
-> tools of codemode cost about 400.
+> 4 tasks: -64 % tokens and -39 % cost through the MCP entry. Blender gains nothing: its `execute_blender_code` is
+> already code mode. A single small call stays direct (it costs more through a script).
 
 ## How it works
 One engine in Python (standard library only, Linux / macOS / Windows), two entries on it:
@@ -68,8 +67,8 @@ One engine in Python (standard library only, Linux / macOS / Windows), two entri
 | claude.ai (web, mobile) | no | no: it only reaches public remote servers, never the ones of a computer |
 
 > [!IMPORTANT]
-> Written to run on Linux, macOS and Windows, but only run on Linux so far: `python3 scripts/selftest.py` checks the
-> engine on any machine in a minute.
+> Run on Linux only so far (Python 3.9 and 3.14): `python3 scripts/selftest.py` checks the engine on macOS or
+> Windows in a minute.
 
 ## Usage
 ```bash

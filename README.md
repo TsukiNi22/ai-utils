@@ -143,7 +143,7 @@ each skill does, what it installs with it) and examples.
 [`code-mode`](skills/code-mode/README.md) drives the MCP servers already declared on the computer with code.
 One Python script calls the tools; only what it prints enters the context.
 
-- **Gain**: 49,500 -> 11,900 tokens over 8 real tasks. A single small call stays direct.
+- **Gain**: Opus 5.5 on 4 real tasks, -64 % tokens and -39 % cost. A single small call stays direct.
 - **Entries**: MCP tools or a command line, on one engine without dependency.
 - **Where**: Claude Code and Claude Desktop, Linux / macOS / Windows; not claude.ai.
 
