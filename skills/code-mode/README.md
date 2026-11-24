@@ -18,7 +18,7 @@ already declared on a computer, with nothing to host.
 The *Installs with it* column comes from each `requires.txt`: `./setup.sh install <skill>` installs them too.
 
 ## What it saves
-Claude Code with Opus 5.5 doing each task, tokens the task added to the context and cost (from the API usage):
+Opus 5.5 doing each task in Claude Code: tokens added to the context, and the cost.
 
 | Task | Direct calls | Codemode MCP | Skill, command line |
 |---|---:|---:|---:|
