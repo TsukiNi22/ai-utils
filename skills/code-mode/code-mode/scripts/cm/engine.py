@@ -210,7 +210,8 @@ def schema_lines(spec: dict) -> list[str]:
         text = f"  {name}{'' if name in required else '?'}: {kind}"
         text += f" = {compact(prop['default'])}" if prop.get("default") is not None else ""
         text += f" - {' '.join(str(prop['description']).split())[:160]}" if prop.get("description") else ""
-        text += f" {compact({key: value for key, value in prop.items() if key != "description"})[:500]}" if nested else ""
+        rest = {key: value for key, value in prop.items() if key != "description"}
+        text += f" {compact(rest)[:500]}" if nested else ""
         lines.append(text)
     if schema.get("$defs"):
         lines.append(f"  $defs: {compact(schema['$defs'])[:900]}")
