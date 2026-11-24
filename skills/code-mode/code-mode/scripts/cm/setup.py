@@ -48,11 +48,26 @@ def edit_json(path: Path, change: Callable[[dict], None]) -> None:
     data = read_json(path, {})
     data = data if isinstance(data, dict) else {}
     backup = path.with_name(path.name + ".codemode.bak")
-    if path.is_file() and not backup.exists():
-        shutil.copy2(path, backup)
+    if not backup.exists():  # the state before codemode first touched the file ({} when there was none)
+        if path.is_file():
+            shutil.copy2(path, backup)
+        else:
+            write_json(backup, {})
     change(data)
     mode = (path.stat().st_mode & 0o777) if path.is_file() else 0o600
     write_json(path, data, mode)
+
+def drop_backups(paths: list[Path]) -> None:
+    """Remove the copies setup kept of files that are back to what they were (nothing of codemode left in them)."""
+    for path in paths:
+        backup = path.with_name(path.name + ".codemode.bak")
+        if not backup.is_file():
+            continue
+        if read_json(backup, None) == read_json(path, None) or (not path.exists() and read_json(backup, None) == {}):
+            try:
+                backup.unlink()
+            except OSError:
+                pass  # kept: it is only a copy
 
 def settings_path(scope: str, cwd: str) -> Path:
     """The Claude Code settings file that holds the hooks of a scope."""
@@ -281,6 +296,7 @@ def uninstall(scope: str, cwd: str, purge: bool) -> str:
             desktop(False, [], report)
             state["desktop"] = False
     write_json(home() / "install.json", state)
+    drop_backups([claude_json(), settings_path("user", cwd), settings_path("project", cwd), Path(cwd) / ".mcp.json", desktop_config()])
     if purge and everything:
         left = read_json(home() / "servers.json", {})
         if left:

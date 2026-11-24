@@ -10,7 +10,8 @@ tools: `script_grep` (50 matches at most) or `script_search` (10) before `script
 range rather than a whole script; `search_game_tree` with its filters and a depth limit, `inspect_instance` for one
 instance. Several edits of scripts: one `multi_edit`. `get_console_output` returns the whole output log: get it inside
 `execute` and print only the errors and warnings since your action. A play test: `start_stop_play`, then poll
-`get_studio_state` / `get_console_output` in one `execute` loop with a sleep, not call after call. `screen_capture`
+`get_studio_state` / `get_console_output` in one `execute` loop with a sleep, not call after call (legacy server: one
+`run_script_in_play_mode`, which stops by itself and returns the logs, errors and duration). `screen_capture`
 returns an image: only through codemode `call`, when you must check by eye. The `generate_*` tools and `upload_image`
 are slow jobs (`wait_job_finished`): one at a time, never in a pmap. Check the exact arguments with search detail=true.
 Everything that changes the place needs allow_write; `save_place` only when the user asks.

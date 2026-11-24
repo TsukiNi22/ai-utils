@@ -231,6 +231,8 @@ def test_setup() -> None:
     config = json.loads((HOME / ".claude.json").read_text(encoding="utf-8"))
     settings = json.loads((HOME / ".claude" / "settings.json").read_text(encoding="utf-8"))
     check("setup: uninstall gives everything back", config["mcpServers"] == {"alpha": {"command": "alpha-server"}, "beta": {"command": "beta-server"}} and "hooks" not in settings, config)
+    left = sorted(str(path.relative_to(HOME)) for path in HOME.rglob("*.codemode.bak"))
+    check("setup: no backup copy is left once the files are back", not left, left)
 
 def test_transports() -> None:
     servers = json.loads((home() / "servers.json").read_text(encoding="utf-8"))
