@@ -49,7 +49,7 @@ tools and returns only what it prints. Measured on real servers (ffmpeg, kdenliv
   (a small local daemon), it stops with the session. Both entries drive the same engine: same variables, same jobs.
 - Invoking this skill also turns on its hooks for the session (Claude Code): the sizes of direct MCP results are
   measured, a reminder comes after 3 direct calls in a row on one server, a direct result over ~2,500 tokens is replaced
-  by a preview and the path of the full text.
+  by a preview and the path of the full text, and a smaller one handed over escaped twice comes back as its plain text.
 
 ```bash
 cm search                                  # the servers and what they hold
@@ -129,8 +129,9 @@ servers back and removes the registration and the hooks (ask which scope first).
 - Tokens first: follow section 3 even when a direct call "would be simpler" for a loop; never `execute` for one call.
 - Never `--write` / `allow_write` unless the request implies a change; never `--move`, `uninstall` or `--purge` without
   the user's answer; a `.mcp.json` server not approved in Claude Code is refused: approve it there, never around it.
-- The code runs on the user's computer with his rights (inside the OS sandbox only when he turned it on): write
-  scripts that do what was asked and nothing else, no network or file access the task does not need.
+- The code runs on the user's computer with his rights (inside the OS sandbox only when he turned it on: no network,
+  writes only in the project, every hidden entry of the home out of sight): write scripts that do what was asked and
+  nothing else, no network or file access the task does not need.
 - Everything is local: the engine listens on 127.0.0.1 with a token, the audit journal (`cm stats`, `<data>/audit/`)
   stays on the computer. Data folder: `$CODEMODE_HOME`, default `~/.local/share/codemode` (Linux),
   `~/Library/Application Support/codemode` (macOS), `%LOCALAPPDATA%\codemode` (Windows).

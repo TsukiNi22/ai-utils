@@ -56,7 +56,8 @@ One engine in Python (standard library only, Linux / macOS / Windows), two entri
   `[code]` tools already run a script inside the application (the whole task in one script, a summary printed). Yours go
   in `<data>/profiles/*.md`.
 - **Hooks** (Claude Code): a reminder after 3 direct calls in a row on one server, and a compressor that replaces a
-  direct result over ~2,500 tokens by a preview and the path of the full text.
+  direct result over ~2,500 tokens by a preview and the path of the full text (a smaller one handed over escaped twice
+  comes back as its plain text: 5 to 25% fewer tokens).
 
 ## Where it works
 
@@ -106,7 +107,7 @@ python3 scripts/bench.py        # direct calls against code mode on scripted tas
 | approved servers only | a `.mcp.json` server not approved in Claude Code is never started |
 | local only | the engine listens on `127.0.0.1` with a private token |
 | sandbox off | scripts run with the rights of the user |
-| sandbox on | no network, writes limited to the project, secret folders hidden |
+| sandbox on | no network, writes only in the project, hidden files of the home out of sight |
 | audit journal | every run in `<data>/audit/audit.jsonl`: code, tools, sizes |
 
 [All the categories](../README.md) · [Installation](../../INSTALL.md)

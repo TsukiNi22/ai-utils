@@ -3,12 +3,16 @@
 `codemode.py hook [remind] [compress]` reads the hook event on stdin and answers on stdout:
 - always: the size of the direct result is recorded (search shows it next to the tool) and counted for the stats;
 - remind: at the Nth direct call in a row on one server, or after one big result, one line tells to use codemode;
-- compress: a direct result over the threshold is replaced by a preview, its shape and the path of the full text.
-It costs nothing in the context while it has nothing to say.
+- compress: a direct result over the threshold is replaced by a preview, its shape and the path of the full text; a
+  smaller one that Claude Code hands over as `{"result": "<the text, escaped again>"}` is given back as the text itself
+  (the same content, 5 to 25% fewer tokens).
+It costs nothing in the context while it has nothing to say. Checked on Claude Code 2.1.331: the result of an MCP tool
+arrives here as one string, and a string is accepted back as its replacement.
 """
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 
@@ -16,6 +20,7 @@ from . import audit, sizes
 from .paths import compact, est_tokens, load_config, read_json, safe_name, shape, sub, tokens_label, write_json
 
 OWN = ("codemode", "plugin_code-mode-skills_codemode")  # the servers that are codemode itself
+UNWRAP_OVER = 300  # tokens: under this a wrapped result is left as it is
 
 def split(name: str) -> tuple[str, str]:
     """mcp__<server>__<tool> -> (server, tool)."""
@@ -25,6 +30,13 @@ def split(name: str) -> tuple[str, str]:
 def response_text(response: object) -> tuple[str, bool]:
     """The text of a tool result as the model reads it, and whether it also holds media (never cut then)."""
     if isinstance(response, str):
+        if response.startswith('{"result":'):
+            try:
+                inner = json.loads(response)
+            except ValueError:
+                inner = None
+            if isinstance(inner, dict) and list(inner) == ["result"] and isinstance(inner["result"], str):
+                return inner["result"], False  # the text itself, not its escaped copy
         return response, False
     blocks = response.get("content") if isinstance(response, dict) and isinstance(response.get("content"), list) else response
     if isinstance(blocks, list) and all(isinstance(block, dict) for block in blocks):
@@ -59,9 +71,13 @@ def preview_of(text: str, config: dict, path: str) -> str:
 def run(flags: list[str]) -> int:
     """Handle one hook event (JSON on stdin); print the answer of the hook when there is one."""
     try:
-        event = json.load(sys.stdin)
+        raw = sys.stdin.read()
+        event = json.loads(raw)
     except ValueError:
         return 0
+    if os.environ.get("CODEMODE_HOOK_DEBUG"):  # keep the events as received, to check the shape a client sends
+        with open(os.environ["CODEMODE_HOOK_DEBUG"], "a", encoding="utf-8") as file:
+            file.write(raw.strip() + "\n")
     name = str(event.get("tool_name") or "")
     if event.get("hook_event_name") != "PostToolUse" or not name.startswith("mcp__"):
         return 0
@@ -81,7 +97,8 @@ def run(flags: list[str]) -> int:
     response = event.get("tool_response")
     text, media = response_text(response)
     failed = isinstance(response, dict) and bool(response.get("isError"))
-    sizes.record(f"{server}.{tool}", len(text))
+    seen = len(response) if isinstance(response, str) else len(text)  # what the model would have read
+    sizes.record(f"{server}.{tool}", seen)
     output: dict = {}
     notes: list[str] = []
     cut = 0
@@ -92,10 +109,13 @@ def run(flags: list[str]) -> int:
             file.write(text)
         preview = preview_of(text, config, str(path))
         output["updatedToolOutput"] = replaced(response, preview)
-        cut = len(text) - len(preview)
+        cut = seen - len(preview)
+    elif "compress" in flags and isinstance(response, str) and not failed and est_tokens(seen) > UNWRAP_OVER and len(text) < seen * 0.92:
+        output["updatedToolOutput"] = text
+        cut = seen - len(text)
     entry = streak.setdefault(server, {"n": 0, "chars": 0})
     entry["n"] += 1
-    entry["chars"] += len(text) - cut
+    entry["chars"] += seen - cut
     if "remind" in flags:
         after = int(config["remind_after"])
         if entry["n"] in (after, after * 4) and told.get(server, 0) < entry["n"]:
@@ -108,7 +128,7 @@ def run(flags: list[str]) -> int:
             notes.append(f"[codemode] {server}.{tool} returned {tokens_label(len(text))}. Next time get only what matters: codemode `call` "
                          f"with pick, or `execute` and print the fields you need.")
     write_json(state_path, state)
-    audit.log({"op": "direct", "session": session, "server": server, "tool": tool, "chars": len(text), "cut": cut}, config)
+    audit.log({"op": "direct", "session": session, "server": server, "tool": tool, "chars": seen, "cut": cut}, config)
     if notes:
         output["additionalContext"] = " ".join(notes)
     if output:

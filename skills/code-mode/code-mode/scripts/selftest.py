@@ -199,6 +199,9 @@ def test_hook() -> None:
     big = hook({**event, "tool_name": "mcp__media__dump", "tool_response": [{"type": "text", "text": json.dumps([{"n": i, "pad": "y" * 40} for i in range(400)])}]})
     cut = big.get("updatedToolOutput") or [{}]
     check("hook: a big direct result is cut to a preview with the path of the whole", isinstance(cut, list) and "Full text: " in cut[0].get("text", "") and len(cut[0]["text"]) < 4000, str(big)[:300])
+    wrapped = json.dumps({"result": json.dumps({"lines": ["a \"quoted\" line\n"] * 60})})
+    plain = hook({**event, "tool_name": "mcp__media__wrapped", "tool_response": wrapped})
+    check("hook: a result wrapped and escaped twice is given back as its text", plain.get("updatedToolOutput") == json.loads(wrapped)["result"], str(plain)[:200])
     own = hook({**event, "tool_name": "mcp__codemode__execute"})
     check("hook: codemode's own tools are left alone", own == {})
     check("hook: sizes are learned for search", "media.dump" in json.dumps(__import__("cm.sizes", fromlist=["load"]).load()))
@@ -263,6 +266,11 @@ def test_sandbox() -> None:
         return
     (HOME / ".ssh").mkdir(exist_ok=True)
     (HOME / ".ssh" / "id_test").write_text("PRIVATE", encoding="utf-8")
+    (HOME / ".config" / "someapp").mkdir(parents=True, exist_ok=True)
+    (HOME / ".config" / "someapp" / "token").write_text("PRIVATE", encoding="utf-8")
+    (HOME / ".netrc").write_text("PRIVATE", encoding="utf-8")
+    (HOME / "Videos").mkdir(exist_ok=True)
+    (HOME / "Videos" / "clip.txt").write_text("plain", encoding="utf-8")
     outside = ROOT / "outside.txt"
     engine = new_engine(sandbox=True)
     code = f"""import os, socket
@@ -273,7 +281,8 @@ try:
     open({str(outside)!r}, "w").write("x"); print("WRITE outside ok")
 except OSError: print("WRITE outside blocked")
 open("inside.txt", "w").write("x"); print("WRITE inside ok")
-print("SSH", os.listdir(os.path.expanduser("~/.ssh")))
+print("SSH", os.listdir(os.path.expanduser("~/.ssh")), os.listdir(os.path.expanduser("~/.config")), repr(open(os.path.expanduser("~/.netrc")).read()))
+print("PLAIN", open(os.path.expanduser("~/Videos/clip.txt")).read())
 print("DATA", os.path.exists({str(home() / "servers.json")!r}))
 print(call("fake", "echo", text="tools still work"))"""
     try:
@@ -283,7 +292,8 @@ print(call("fake", "echo", text="tools still work"))"""
     check("security: sandboxed code has no network", "NET blocked" in text, text)
     check("security: sandboxed code only writes in the project", "WRITE outside blocked" in text and "WRITE inside ok" in text and not outside.exists()
           and (PROJECT / "inside.txt").is_file(), text)
-    check("security: sandboxed code sees no secret folder nor the codemode data", "SSH []" in text and "DATA False" in text, text)
+    check("security: sandboxed code sees no hidden file of the home nor the codemode data", "SSH [] [] ''" in text and "DATA False" in text, text)
+    check("security: sandboxed code still reads the ordinary folders", "PLAIN plain" in text, text)
     check("security: tool calls still work from the sandbox", "tools still work" in text, text)
 
 def main(argv: list[str]) -> int:

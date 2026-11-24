@@ -31,7 +31,8 @@ DEFAULTS: dict = {
     "daemon_idle_s": 1800,  # the session daemon of the command line stops after this without a request
     "index_retry_s": 600,  # a server that failed to list its tools is tried again after this
     "sandbox": False,  # run the code inside the OS sandbox (bubblewrap / sandbox-exec); asked at setup
-    "sandbox_hide": [],  # more paths hidden from the sandboxed code
+    "sandbox_hide": [],  # more paths hidden from the sandboxed code (every hidden entry of the home already is)
+    "sandbox_show": [],  # hidden paths the sandboxed code may read after all
     "sandbox_writable": [],  # more paths the sandboxed code may write
     "recipes": {"ttl_days": 30, "max_bytes": 5000000, "max_count": 200},
     "audit": {"max_bytes": 10000000, "code_chars": 4000},

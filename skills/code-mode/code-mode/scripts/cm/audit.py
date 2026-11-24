@@ -91,10 +91,11 @@ def stats(session: str | None = None) -> str:
     if runs:
         direct_cost, code_cost = raw + sent, returned + code
         saved = direct_cost - code_cost
-        share = f" ({100 * saved // direct_cost}%)" if direct_cost > 0 else ""
+        share = f" ({100 * abs(saved) // direct_cost}%)" if direct_cost > 0 else ""
+        verdict = f"saved: {tokens(saved)} tok{share}" if saved >= 0 else f"cost more than direct calls: {tokens(-saved)} tok{share}"
         lines.append(f"execute: {runs} runs ({recipes} from a recipe), {calls} tool calls ({failed} failed, {retried} ok after a retry)")
         lines.append(f"  in the context: {tokens(code_cost)} tok (code {tokens(code)} + output {tokens(returned)})"
-                     f" | the same calls direct: {tokens(direct_cost)} tok | saved: {tokens(saved)} tok{share}")
+                     f" | the same calls direct: {tokens(direct_cost)} tok | {verdict}")
     if single_raw or single_out:
         lines.append(f"call: returned {tokens(single_out)} tok for {tokens(single_raw)} tok of raw results")
     if direct:
