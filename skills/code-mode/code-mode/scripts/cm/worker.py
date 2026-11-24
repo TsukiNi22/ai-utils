@@ -126,11 +126,22 @@ class Runner:
         """The same tool on many argument sets in parallel; a failed item is a ToolError at its place.
 
         key="name": the successful items are remembered under that name, so running the same pmap again only sends the
-        ones that failed or were not sent (resume after a usage limit, nothing done twice).
+        ones that failed or were not sent (resume after a usage limit, nothing done twice). A function is accepted too:
+        it gives the id of each item, under the name server.tool.
         """
         items = list(items)
-        done = self.progress.setdefault(key, {}) if key else {}
-        marks = [json.dumps(item, sort_keys=True, default=str) for item in items]
+        group = key if isinstance(key, str) else f"{server}.{tool}" if key is not None else None
+        done = self.progress.setdefault(group, {}) if group else {}
+
+        def mark(item: object) -> str:
+            if callable(key):
+                try:
+                    return str(key(item))
+                except Exception:  # a key function that fails on an item: the item itself is its id
+                    pass
+            return json.dumps(item, sort_keys=True, default=str)
+
+        marks = [mark(item) for item in items]
         todo = [position for position, mark in enumerate(marks) if mark not in done]
         results: list = [done[mark][0] if mark in done else None for mark in marks]
         if todo:

@@ -65,6 +65,9 @@ def test_search(engine: Engine) -> None:
     check("search: a tool that runs code is marked", "[code]" in engine.search("execute_fake"), engine.search("execute_fake"))
     check("search: detail gives the arguments", "text: string - What to return" in engine.search("echo", detail=True))
     check("search: words work when the regex finds nothing", "fake.get_things" in engine.search("things list"))
+    alone = engine.search("fake")
+    check("search: a server name alone lists every tool name of it", alone.startswith("fake (12 tools") and "show_env" in alone and "..." not in alone.split("\n")[0], alone)
+    check("search: the server prefix is not searched", "no tool matches" in engine.search("^fak"), engine.search("^fak"))
 
 def test_call(engine: Engine) -> None:
     answer = engine.handle("call", {"server": "fake", "tool": "echo", "args": {"text": "hi"}})
@@ -121,6 +124,10 @@ def test_failures(engine: Engine) -> None:
     text, failed = run(engine, 'r = pmap("fake", "limited", items, limit=1, key="lim")\nprint(len(ok(r)))', wait=30)
     engine.hub._limited.clear()
     check("failures: the same pmap again only sends what is missing", text.splitlines()[0] == "6", text)
+    engine.handle("call", {"server": "fake", "tool": "reset", "args": {}})
+    text, failed = run(engine, 'r1 = pmap("fake", "echo", [dict(text=str(i)) for i in range(4)], key=lambda a: a["text"])\n'
+                               'r2 = pmap("fake", "echo", [dict(text=str(i)) for i in range(6)], key=lambda a: a["text"])\nprint(len(ok(r2)), r2[3])')
+    check("failures: pmap accepts a function as key", text.strip() == "6 3" and not failed, text)
     crashed = engine.handle("call", {"server": "fake", "tool": "crash", "args": {}})
     again = engine.handle("call", {"server": "fake", "tool": "echo", "args": {"text": "back"}})
     check("failures: a dead server is reported, then started again", crashed["is_error"] and "server_down" in crashed["text"] and again["text"] == "back", crashed["text"])

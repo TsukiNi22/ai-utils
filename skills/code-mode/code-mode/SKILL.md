@@ -57,6 +57,7 @@ tools and returns only what it prints. Measured on real servers (ffmpeg, kdenliv
 
 ```bash
 cm search                                  # the servers and what they hold
+cm search --server kdenlive                # every tool name of one server, in one line (cheap)
 cm search "thumbnail|duration" --server ffmpeg      # one line per tool: server.tool(args) - summary [ro] ~1.3k tok
 cm search "timeline_add_clips" --detail             # + the arguments (5 tools at most)
 cm call ffmpeg.get_media_info file_path=/x.mp4 --pick "format.duration,streams[].codec_name"
@@ -65,6 +66,7 @@ cm run - <<'EOF'                           # a script; --write when it calls too
 EOF
 cm job j3 --wait 60                        # a run that went to the background: what it printed since
 ```
+Search with precise words or the tool names, never with the server name alone (it would match every tool of it).
 `[ro]` = read only, `[code]` = the tool already runs a script inside its application, `~N tok` = the measured average
 size of its results. `notes(server): ...` under a result = the profile of that server (Blender, Roblox Studio, yours in
 `<data>/profiles/*.md`): read it once, it says how to use that server cheaply.
@@ -94,7 +96,8 @@ print(len(ok(infos)), "ok,", len(failed(infos)), "failed")   # print only what t
 ```
 - `call(server, tool, **args)` -> the result as data (dict / list / str; with images: `{"result", "files": [paths]}`);
   it raises `ToolError` (`.kind`, `.message`, `.retry_after`). `pmap(server, tool, items, limit=8, key=None)` -> one
-  result per item, a `ToolError` at the place of each failed one (`Skipped` when it was not sent). `ok(results)`,
+  result per item, a `ToolError` at the place of each failed one (`Skipped` when it was not sent); `key` is a name
+  for the batch (or a function giving the id of an item). `ok(results)`,
   `failed(results)`, `args` (the values given with `--args` / a recipe), `json`.
 - **Variables persist** between runs of the session: first a tiny run that prints the shape of ONE result, then the
   real run on everything. Never print raw results; a long output is cut and saved to a file anyway.

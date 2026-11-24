@@ -18,16 +18,16 @@ Choose by token cost:
 - 1-2 calls with a small result you need as it is: `call` (or the server's own tool when it is loaded here).
 - 3 calls or more, a loop over items, a chain where a result feeds the next call, or a result to filter / count / aggregate (search shows `~Nk tok` on tools measured to return a lot): `execute` with one Python script.
 - An image you must look at: `call` (execute only gives file paths).
-Flow: `search` (one line per tool; detail=true for the arguments of the few tools you will use), then `execute`. In the code: call(server, tool, **args) returns parsed data; pmap(server, tool, [args, ...], key="name") runs in parallel and puts a ToolError in place of each failed item; variables persist between executes, so look at the shape of one result first, then process everything. Print only what the answer needs: counts, a short table, ids, errors.
+Flow: `search` with server=NAME and no query (every tool name of that server, cheap), or with precise words (never the server name alone); detail=true for the arguments of the 2-5 tools you will use; then `execute`. In the code: call(server, tool, **args) returns parsed data; pmap(server, tool, [args, ...], key="a name") runs in parallel and puts a ToolError in place of each failed item; variables persist between executes, so look at the shape of one result first, then process everything. Print only what the answer needs: counts, a short table, ids, errors.
 Failures: a usage limit is waited and tried again by itself; when it lasts, the batch stops, what already succeeded is kept and the footer lists what failed or was not sent. Never redo what succeeded: run the same pmap with the same key, it only sends the missing items.
 Writes: a tool without [ro] needs allow_write=true; set it only when the user's request asks for a change.
 An execute that outlasts its wait goes on as a job: `job` returns what it printed since."""
 
 TOOLS = [
     {"name": "search",
-     "description": "Find tools of the local MCP servers (and saved recipes). Empty query: the servers and what they hold. query: words "
-                    "or a regex on `server.tool(args) - summary`; detail=true adds the arguments of up to 5 tools. [ro] = read only, "
-                    "`~N tok` = the measured size of its results.",
+     "description": "Find tools of the local MCP servers (and saved recipes). Empty query: the servers; with server=NAME: every tool name "
+                    "of it. query: words or a regex on `tool(args) - summary`; detail=true adds the arguments of up to 5 tools. [ro] = read "
+                    "only, [code] = runs a script inside its application, `~N tok` = the measured size of its results.",
      "inputSchema": {"type": "object", "properties": {
          "query": {"type": "string", "description": "Words or a regex; empty lists the servers"},
          "server": {"type": "string", "description": "Only this server"},
@@ -44,7 +44,7 @@ TOOLS = [
      "annotations": {"title": "Call one tool"}},
     {"name": "execute",
      "description": "Run Python against the local MCP servers; only what it prints comes back. Helpers: call(server, tool, **args), "
-                    "pmap(server, tool, items, key=None), ToolError, ok(results), failed(results), args. Variables persist between "
+                    "pmap(server, tool, items, key=\"a name\": resumable), ToolError, ok(results), failed(results), args. Variables persist between "
                     "calls (fresh=true: a clean separate run). recipe= runs a saved script, save_as= keeps this one once it succeeded.",
      "inputSchema": {"type": "object", "properties": {
          "code": {"type": "string", "description": "Python source"},

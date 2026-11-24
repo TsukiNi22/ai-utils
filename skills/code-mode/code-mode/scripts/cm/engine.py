@@ -21,7 +21,8 @@ from .paths import compact, load_config, safe_name, script_command, shape, sub, 
 SECRET_ENV = re.compile(r"key|token|secret|passw|credential|auth|cookie|session", re.I)  # never given to the code
 OUTPUT_LIMIT = 4000000  # characters of output kept for one job
 PASS_MEDIA = 1500000  # base64 characters of images handed over as they are by `call`
-MAX_LINES = 25
+MAX_LINES = 20
+MAX_ARGS = 6  # arguments shown on a search line (detail=true gives all of them)
 
 class EngineError(Exception):
     """Something codemode itself could not do (bad argument, no runner, unknown job)."""
@@ -277,6 +278,9 @@ class Engine:
     def search(self, query: str, server: str = "", detail: bool = False, refresh: bool = False) -> str:
         """Tools (and recipes) matching words or a regex; without a query, the servers and what they hold."""
         tools, errors = self.hub.index(refresh)
+        named = {name.lower(): name for name in tools}
+        if query.strip().lower() in named and not server:  # a server name alone: every tool name of that server
+            server, query = named[query.strip().lower()], ""
         known = sizes.load()
         saved = recipes.index()
         lines: list[str] = []
@@ -288,22 +292,26 @@ class Engine:
                     continue
                 specs = list(tools[name].values())
                 read = sum(self.hub.read_only(name, spec) for spec in specs)
-                more = ", ..." if len(specs) > 6 else ""
-                lines.append(f"{name} ({len(specs)} tools, {read} read only): {', '.join(spec['name'] for spec in specs[:6])}{more}")
+                shown = specs if server else specs[:6]
+                more = ", ..." if len(specs) > len(shown) else ""
+                lines.append(f"{name} ({len(specs)} tools, {read} read only): {', '.join(spec['name'] for spec in shown)}{more}")
                 if server:
                     said = " ".join(self.hub.instructions(name).split())
                     lines += [f"its own instructions: {said[:1500]}"] if said else []
                     lines += self._notes(name, tools[name], True)
             lines += [f"recipes ({len(saved)}): {', '.join(sorted(saved)[:10])}"] if saved and not server else []
+            lines += ["(every tool name of one server: server=NAME and no query; then a precise query, detail=true for the arguments)"] if not server else []
         else:
             entries = []
             for name in sorted(tools):
                 if server and name != server:
                     continue
                 for spec in tools[name].values():
-                    names = (spec.get("inputSchema") or {}).get("properties") or {}
+                    names = list((spec.get("inputSchema") or {}).get("properties") or {})
                     required = set((spec.get("inputSchema") or {}).get("required") or [])
-                    head = f"{name}.{spec['name']}({', '.join(n if n in required else n + '?' for n in names)})"
+                    shown = [n if n in required else n + "?" for n in sorted(names, key=lambda n: n not in required)[:MAX_ARGS]]
+                    shown += ["..."] if len(names) > MAX_ARGS else []
+                    head = f"{name}.{spec['name']}({', '.join(shown)})"
                     average = sizes.average(known, f"{name}.{spec['name']}")
                     flags = (" [code]" if code_tool(spec) else "") + (" [ro]" if self.hub.read_only(name, spec) else "")
                     flags += f" {tokens_label(average)}" if average else ""
@@ -343,16 +351,24 @@ class Engine:
         return self._loaded
 
     def _match(self, query: str, entries: list[tuple]) -> list[tuple]:
-        """The entries a query selects: a regex first, its words when it is not one or finds nothing; names first."""
+        """The entries a query selects: a regex first, its words when it is not one or finds nothing; names first.
+
+        The server prefix of a line is not searched (a server name would match all its tools) unless the query names
+        one with a dot (`kdenlive.clip_`).
+        """
         words = query.lower().split()
+
+        def text(entry: tuple) -> str:
+            return entry[1] if "." in query or not entry[2] else entry[1][len(entry[2]) + 1:]
+
         try:
             regex = re.compile(query, re.I)
-            found = [entry for entry in entries if regex.search(entry[1])]
+            found = [entry for entry in entries if regex.search(text(entry))]
         except re.error:
             found = []
         if not found:
-            found = [entry for entry in entries if all(word in entry[1].lower() for word in words)]
-        return sorted(found, key=lambda entry: not any(word in entry[0].lower() for word in words))
+            found = [entry for entry in entries if all(word in text(entry).lower() for word in words)]
+        return sorted(found, key=lambda entry: not any(word in text(entry).split("(")[0].lower() for word in words))
 
     def call(self, server: str, tool: str, args: dict, pick: str = "", allow_write: bool = False) -> tuple[str, list[dict], bool]:
         """One tool call through the proxy: its result compact, optionally reduced to some fields."""
