@@ -2,11 +2,11 @@
 
 <img src="code-mode/assets/logo.png" alt="code mode" width="120">
 
-The local MCP servers driven by code. A direct MCP call puts its whole result in the context and costs one model
-turn; with `code-mode` one Python script calls the same tools and **only what it prints comes back**. The idea is the
-one of Cloudflare ([Code Mode](https://blog.cloudflare.com/code-mode/)) and Anthropic
-([Code execution with MCP](https://www.anthropic.com/engineering/code-execution-with-mcp)), made for the servers already
-declared on a computer, without anything to host.
+A direct MCP call puts its whole result in the context and costs one model turn. With `code-mode` one Python script
+calls the same tools and **only what it prints comes back**. The idea comes from Cloudflare
+([Code Mode](https://blog.cloudflare.com/code-mode/)) and Anthropic
+([Code execution with MCP](https://www.anthropic.com/engineering/code-execution-with-mcp)); here it uses the servers
+already declared on a computer, with nothing to host.
 
 ## Skills
 <!-- generated:skills -->
@@ -100,11 +100,13 @@ python3 scripts/bench.py        # direct calls against code mode on scripted tas
 | `sources`, `disabled_servers` | all on, none | where the servers are read from, which to ignore |
 
 ## Security
-- Read only by default: a tool that changes things needs `--write` / `allow_write`; `rules.deny` always wins.
-- A `.mcp.json` server is used only when it was approved in Claude Code: a cloned repository starts nothing.
-- The engine listens on `127.0.0.1` with a token kept in a file only the user can read; nothing leaves the computer.
-- Without the sandbox the scripts run with the rights of the user, like any command of the session. With it: no
-  network, writes limited to the project folder, the usual secret folders and the codemode data hidden.
-- Every run is in the audit journal (`<data>/audit/audit.jsonl`: the code, the tools called, the sizes).
+| Rule | Effect |
+|---|---|
+| read only by default | a tool that changes things needs `--write` / `allow_write`; `rules.deny` always wins |
+| approved servers only | a `.mcp.json` server not approved in Claude Code is never started |
+| local only | the engine listens on `127.0.0.1` with a private token |
+| sandbox off | scripts run with the rights of the user |
+| sandbox on | no network, writes limited to the project, secret folders hidden |
+| audit journal | every run in `<data>/audit/audit.jsonl`: code, tools, sizes |
 
 [All the categories](../README.md) · [Installation](../../INSTALL.md)

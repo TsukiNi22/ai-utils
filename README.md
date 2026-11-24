@@ -18,6 +18,7 @@ One installer, [`setup.sh`](setup.sh), for the skills, the [tools](#tools) and t
  - [Usage](#usage)
  - [Routers](#routers)
  - [Skills](#skills)
+ - [Code mode](#code-mode)
  - [Tools](#tools)
  - [Context](#context)
  - [Layout](#layout)
@@ -91,6 +92,7 @@ Once installed, a skill is used **automatically** when the request matches it, o
 | follow a session from Discord, Telegram, the phone (ntfy), Slack, a file, an API or a port | `/session-log <url or path...>`, `/session-log stop` |
 | use my audio / image / video / 3D / VFX tools | `/setup-studio` once (scans, fills the gaps, generates `/studio`), then `/studio` |
 | free disk space | *"clean my computer"* (`computer-clean`) |
+| spend fewer tokens on MCP servers (many calls, a loop, a big result) | `/code-mode` (this session), `/code-mode setup` (a project, the computer, Claude Desktop) |
 
 ## Routers
 Invoked by hand, they read the request, the project and the language, then load the right skills by themselves.
@@ -134,6 +136,21 @@ each skill does, what it installs with it) and examples.
 | [AI workflow](skills/ai/README.md) | --rtk outputs, QCM questions, clarification, ideation, a run without interruption, a clean pause resumed at the next continue, session context, the user's voice, handover, onboarding, presentations, full git permission, linked sessions, session progress logged to Discord / files / APIs | `ask-at-end`, `clarify`, `continue-work`, `export`, `full-permission`, `ideation`, `interactive-questions`, `onboard`, `pause`, `presentation`, `rtk`, `session-link`, `session-log`, `setup-context`, `write-like-me` |
 | [Code mode](skills/code-mode/README.md) | The local MCP servers driven by one Python script whose printed output alone enters the context (-50 to -90% tokens on batches, chains and big results), MCP tools and a command line on one engine, background jobs, usage limits and partial failures resumed, recipes, profiles for Blender and Roblox Studio, hooks, an optional sandbox | `code-mode` |
 <!-- /generated:categories -->
+
+## Code mode
+<img src="skills/code-mode/code-mode/assets/logo.png" alt="" width="72" align="right">
+
+[`code-mode`](skills/code-mode/README.md) drives the MCP servers already declared on the computer with code.
+One Python script calls the tools; only what it prints enters the context.
+
+- **Gain**: 49,500 -> 11,900 tokens over 8 real tasks. A single small call stays direct.
+- **Entries**: MCP tools or a command line, on one engine without dependency.
+- **Where**: Claude Code and Claude Desktop, Linux / macOS / Windows; not claude.ai.
+
+```bash
+/code-mode            # this session, nothing installed
+/code-mode setup      # a project, the whole computer or Claude Desktop: servers moved behind it, hooks, sandbox
+```
 
 ## Tools
 

@@ -21,6 +21,8 @@ Reports of audits on this repository go in `audit/` at the root; repository scri
   then `python3 scripts/readme.py` (writes the tables of `skills/README.md` and `skills/<category>/README.md` from the
   frontmatter, never edited by hand between their markers) and `python3 scripts/check.py` (the CI runs it too).
 - Scripts tested for real before committing (generated files, outputs), placeholders `{{NAME}}` in the templates.
+- `code-mode` (`skills/code-mode/`): after a change of its scripts, `python3 skills/code-mode/code-mode/scripts/selftest.py`
+  (the engine against a fake MCP server, in a temporary folder: both entries, the hook, the setup, the security rules).
 
 ## Versions
 - The tools (claude-cluster...) follow major.minor.patch by the size of the change: a real feature (a new mode, view,

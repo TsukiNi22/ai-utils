@@ -28,6 +28,7 @@ each archive, as expected). Re-run the script and upload again after a change of
 - The routers (`dev`, `cpp`, `doc`, `audit`...) are manual `/commands` of Claude Code: upload them only if you want
   them in the chat, where they become normal skills (claude.ai refuses `disable-model-invocation`: the script keeps
   only the frontmatter keys it accepts).
+- `code-mode` needs the MCP servers of a computer: Claude Code and Claude Desktop only.
 - The paths `~/.claude/skills/<other>/` of a skill become `../<other>/` (the skills side by side); the scripts that
   need your PC (git of a local repository, cmake, sudo...) only work in Claude Code.
 
