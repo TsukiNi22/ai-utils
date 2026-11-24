@@ -47,6 +47,10 @@ tools and returns only what it prints. Measured on real servers (ffmpeg, kdenliv
   them. Their arguments are the ones of the command line below.
 - Otherwise the command line, through Bash. Nothing is installed: the first command starts the engine of this session
   (a small local daemon), it stops with the session. Both entries drive the same engine: same variables, same jobs.
+- **In a Bash heredoc, never let a brace touch a quote** (`{"`, `{'`, `"}`, `'}`): Claude Code asks for an approval of
+  such a command (refused outright when nobody can answer). Write `dict(file_path=f)` instead of `{"file_path": f}`,
+  `"%s %d" % (...)` or a variable instead of a quoted key inside an f-string field. One command per Bash call (no `;`
+  or `&&` with other programs). The MCP entry has none of these limits: for daily use, `/code-mode setup` once.
 - Invoking this skill also turns on its hooks for the session (Claude Code): the sizes of direct MCP results are
   measured, a reminder comes after 3 direct calls in a row on one server, a direct result over ~2,500 tokens is replaced
   by a preview and the path of the full text, and a smaller one handed over escaped twice comes back as its plain text.
@@ -81,7 +85,7 @@ A few seconds more are fine when the token gain is large; a single small call ne
 ## 4. Writing the script
 ```python
 files = sorted(glob.glob("/abs/media/*.mp4"))                 # any Python, any import
-infos = pmap("ffmpeg", "get_media_info", [{"file_path": f} for f in files], key="infos")   # parallel, resumable
+infos = pmap("ffmpeg", "get_media_info", [dict(file_path=f) for f in files], key="infos")   # parallel, resumable
 for f, info in zip(files, infos):
     if isinstance(info, ToolError):
         print(os.path.basename(f), "FAILED", info.kind, info.message[:80]); continue

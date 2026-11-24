@@ -191,12 +191,16 @@ print("cleaned")"""
 def blender_scene(ctx: Context) -> None:
     """What is in the scene: the whole listing against one script printing counts and the biggest objects."""
     server = ctx.server_with("execute_blender_code")
-    ctx.call(server, "get_scene_info", limit=500)
-    ctx.turn(2)
-    ctx.search("scene|execute", server)
-    script = ("import bpy, collections\\nobjs = bpy.context.scene.objects\\nprint(len(objs), 'objects', dict(collections.Counter(o.type for o in objs)))\\n"
-              "big = sorted(objs, key=lambda o: -max(o.dimensions))[:5]\\nprint([(o.name, round(max(o.dimensions), 2)) for o in big])")
-    ctx.execute(f'print(call({server!r}, "execute_blender_code", code="{script}"))')
+    ctx.quiet(server, "execute_blender_code", code=BLENDER_SETUP)  # a scene with 30 objects to describe
+    try:
+        ctx.call(server, "get_scene_info", limit=500)
+        ctx.turn(2)
+        ctx.search("scene|execute", server)
+        script = ("import bpy, collections\\nobjs = bpy.context.scene.objects\\nprint(len(objs), 'objects', dict(collections.Counter(o.type for o in objs)))\\n"
+                  "big = sorted(objs, key=lambda o: -max(o.dimensions))[:5]\\nprint([(o.name, round(max(o.dimensions), 2)) for o in big])")
+        ctx.execute(f'print(call({server!r}, "execute_blender_code", code="{script}"))')
+    finally:
+        ctx.quiet(server, "execute_blender_code", code=BLENDER_CLEAN)
 
 def blender_objects(ctx: Context) -> None:
     """Thirty objects moved and renamed: one execute_blender_code per object against one script for all of them."""
