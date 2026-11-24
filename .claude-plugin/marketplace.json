@@ -124,6 +124,15 @@
       ]
     },
     {
+      "name": "code-mode-skills",
+      "description": "Code mode: the local MCP servers driven by one Python script whose printed output alone enters the context (-50 to -90% tokens on batches, chains and big results), MCP tools and a command line on one engine, background jobs, usage limits and partial failures resumed, recipes, profiles for Blender and Roblox Studio, hooks, an optional sandbox (skills: code-mode)",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/code-mode/"
+      ]
+    },
+    {
       "name": "audit",
       "description": "Router /audit: Router running the audits of the current project",
       "source": "./skills/routers/audit",

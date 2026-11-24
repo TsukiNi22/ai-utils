@@ -9,7 +9,7 @@ one teaches the assistant how I work (code style, file layout, tooling), so that
 One installer, [`setup.sh`](setup.sh), for the skills, the [tools](#tools) and the global [context](#context).
 
 <!-- generated:counts -->
-**63 skills** in 13 categories and **9 routers**.
+**64 skills** in 14 categories and **9 routers**.
 <!-- /generated:counts -->
 
 ### Table of Contents
@@ -101,6 +101,7 @@ Invoked by hand, they read the request, the project and the language, then load 
 |---|---|
 | [`/dev`](skills/routers/dev/SKILL.md) | Global development entry point: looks at the request, the project and the language, then loads the right skills of every category (and the other routers). |
 | <img src="skills/studio/setup-studio/assets/logo.png" alt="" width="20"> [`/studio`](skills/studio/README.md) | Creative work (audio, image, video, 3D, simulation / VFX / rendering) with the tools of the computer: generated on each computer by `setup-studio`, it loads the studio skill of every domain the request touches (which tool, where, how, why). |
+| <img src="skills/code-mode/code-mode/assets/logo.png" alt="" width="20"> [`/code-mode`](skills/code-mode/README.md) | The local MCP servers driven by code: one Python script calls the tools and only what it prints enters the context (-50 to -90% tokens on batches, chains and big results); `/code-mode` for this session, `/code-mode setup` for a project, the whole computer or Claude Desktop. |
 | [`/audit`](skills/routers/audit/SKILL.md) | Asks which audits to run (checklist: `audit-bugs`, `audit-security`, `audit-quality`, `audit-deps`, `legal-check`, `coverage`, `benchmark`; coverage and benchmark checked and run automatically) and the report format, runs them and writes a summary report in `audit/`. |
 | [`/cpp`](skills/routers/cpp/SKILL.md) | Loads `cpp-project`, `cpp-class`, `cpp-style`, `cpp-comments`, `cmake-style`, `cpp-tests`, `audit-bugs`, `audit-quality`, `libutils`, `libutils-exception`, `libutils-install`, `libutils-setup`, `coverage`, `benchmark`, `ci-cd`. |
 | [`/doc`](skills/routers/doc/SKILL.md) | Loads `readme-style`, `html-doc`, `html-style`, `explain-doc`, `protocol-doc`, `better-html-doc`, `better-html-style`, `better-explain-doc`, `better-protocol-doc`, `report`, `docs-update`, `git-conventions` (CHANGELOG), `comments`, `cpp-comments`. |
@@ -131,6 +132,7 @@ each skill does, what it installs with it) and examples.
 | [Studio](skills/studio/README.md) | Scans the audio, image, video, 3D and simulation / VFX / rendering tools of the computer (programs, MCP servers, connectors, GPU), finds free tools for what is missing and installs the accepted ones, then generates a /studio router and one skill per domain saying which tool to use, where, how and why | `setup-studio` |
 | [System](skills/system/README.md) | Free space on the computer and in the data of Claude Code / claude-cluster, chosen in a QCM | `computer-clean` |
 | [AI workflow](skills/ai/README.md) | --rtk outputs, QCM questions, clarification, ideation, a run without interruption, a clean pause resumed at the next continue, session context, the user's voice, handover, onboarding, presentations, full git permission, linked sessions, session progress logged to Discord / files / APIs | `ask-at-end`, `clarify`, `continue-work`, `export`, `full-permission`, `ideation`, `interactive-questions`, `onboard`, `pause`, `presentation`, `rtk`, `session-link`, `session-log`, `setup-context`, `write-like-me` |
+| [Code mode](skills/code-mode/README.md) | The local MCP servers driven by one Python script whose printed output alone enters the context (-50 to -90% tokens on batches, chains and big results), MCP tools and a command line on one engine, background jobs, usage limits and partial failures resumed, recipes, profiles for Blender and Roblox Studio, hooks, an optional sandbox | `code-mode` |
 <!-- /generated:categories -->
 
 ## Tools

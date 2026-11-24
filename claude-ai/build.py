@@ -27,7 +27,12 @@ def for_claude_ai(text: str) -> str:
     """SKILL.md for claude.ai: accepted frontmatter keys only, other skills side by side."""
     m = re.match(r"---\n(.*?)\n---\n", text, re.S)
     if m:
-        keep = [l for l in m.group(1).split("\n") if l.split(":")[0].strip() in KEYS or l.startswith((" ", "\t"))]
+        keep, kept = [], True
+        for l in m.group(1).split("\n"):
+            if not l.startswith((" ", "\t")):
+                kept = l.split(":")[0].strip() in KEYS # a key claude.ai refuses goes with its nested lines (hooks)
+            if kept:
+                keep.append(l)
         keep = [re.sub(r"<([^<>]*)>", r"\1", l) if l.startswith("description:") else l for l in keep] # claude.ai: no tag in the description
         text = "---\n" + "\n".join(keep) + "\n---\n" + text[m.end():]
     return NOTE.sub("`<name>` (a skill) = the folder of that skill, next to this one: `../<name>`.", text)

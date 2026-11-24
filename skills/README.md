@@ -20,6 +20,7 @@ sorts the repository (and makes the plugins of the marketplace). The routers are
 | [Studio](studio/README.md) | Scans the audio, image, video, 3D and simulation / VFX / rendering tools of the computer (programs, MCP servers, connectors, GPU), finds free tools for what is missing and installs the accepted ones, then generates a /studio router and one skill per domain saying which tool to use, where, how and why | `setup-studio` |
 | [System](system/README.md) | Free space on the computer and in the data of Claude Code / claude-cluster, chosen in a QCM | `computer-clean` |
 | [AI workflow](ai/README.md) | --rtk outputs, QCM questions, clarification, ideation, a run without interruption, a clean pause resumed at the next continue, session context, the user's voice, handover, onboarding, presentations, full git permission, linked sessions, session progress logged to Discord / files / APIs | `ask-at-end`, `clarify`, `continue-work`, `export`, `full-permission`, `ideation`, `interactive-questions`, `onboard`, `pause`, `presentation`, `rtk`, `session-link`, `session-log`, `setup-context`, `write-like-me` |
+| [Code mode](code-mode/README.md) | The local MCP servers driven by one Python script whose printed output alone enters the context (-50 to -90% tokens on batches, chains and big results), MCP tools and a command line on one engine, background jobs, usage limits and partial failures resumed, recipes, profiles for Blender and Roblox Studio, hooks, an optional sandbox | `code-mode` |
 <!-- /generated:categories -->
 
 ## Anatomy of a skill

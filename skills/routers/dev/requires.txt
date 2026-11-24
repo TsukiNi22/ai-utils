@@ -33,3 +33,4 @@ color-modes-website
 setup-studio
 session-link
 session-log
+code-mode
