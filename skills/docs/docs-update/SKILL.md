@@ -51,7 +51,8 @@ Check each one; skip what the project has not. Do not stop at the first hit.
 - Same list written in several places (README table, layout tree, plugin table, router tables, marketplace JSON,
   setup script header, claude.ai README): change them all in one pass so they stay identical.
 - Generated files are regenerated with their generator (graph, archives, reference from a commit), not edited.
-- Follow the style skill of each surface; texts in English unless the project's docs are not.
+- Follow the style skill of each surface; texts in English unless the project's docs are not. Little text: a
+  change adds a line, not a paragraph; `python3 <readme-style>/scripts/check_text.py` on every Markdown file changed.
 - `gh-pages` and the wiki are other branches / repositories: use `git worktree add` or a temporary clone, edit
   there, then remove the worktree / clone and come back on the original branch; leave the result **uncommitted**
   unless the user asked for commits (then `git-commit` for each repository).

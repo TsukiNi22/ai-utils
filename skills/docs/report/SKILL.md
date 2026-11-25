@@ -39,6 +39,8 @@ python3 SKILL_DIR/scripts/md2pdf.py <report.md> --format both|pdf|md [-o report.
 
 ## 5. Writing
 - Factual, short paragraphs, every number sourced or marked as an **assumption**, units and dates explicit.
+- Little text (`readme-style`, *Little text*): one idea per sentence, the conclusion first, nothing a table already
+  says; `python3 <readme-style>/scripts/check_text.py report.md --sub` before converting.
 - Tables rather than prose for anything with several attributes; `—` for empty cells, `n/a` when not measurable.
 - Code, paths, commands, identifiers in backticks.
 - Variants: `{: .warn}` / `{: .ok}` on the line after a callout (orange / green bar), `{: .page}` after an H2 to

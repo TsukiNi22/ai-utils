@@ -68,7 +68,7 @@ The answers are kept for the rest of the conversation (a later update of the sam
   quotes, repetitions `*( ... )`, a field encoded in Base64 said so once in its bullet.
 
 ## 4. Writing
-- English by default (the answer of question 3), present tense, short sentences; a typo of the reference (`steap`,
+- English by default (the answer of question 3), present tense, short sentences (`readme-style`, *Little text*); a typo of the reference (`steap`,
   `awnser`, `dosen't`, `reciever`) is never copied.
 - Every frame, byte and command checked against the code; a difference between the code and an existing doc is
   reported to the user before choosing which one wins.

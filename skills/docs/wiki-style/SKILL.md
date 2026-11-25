@@ -24,6 +24,8 @@ For a libutils based project use the `libutils` skill for the exact names, never
 - Links: `[Text](Page-Name)` (no `.md`, no path), `[Text](Page-Name#anchor)`, same page `[Text](#anchor)`; the
   anchor is the heading in lower case, punctuation removed, spaces -> `-` (`## Throw & catch` -> `#throw--catch`).
   Links to the code: full URL (`https://github.com/<owner>/<repo>/blob/main/...`).
+- Little text, as in `readme-style` (*Little text*): one idea per short sentence, table cells of a few words, nothing
+  said twice; check the pages with `python3 <readme-style>/scripts/check_text.py --sub *.md`.
 - Commit in the wiki repository with `git-conventions` (`docs(wiki): ...`); pushing publishes the wiki: only when asked.
 
 ## 2. Pages
