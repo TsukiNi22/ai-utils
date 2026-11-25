@@ -1,12 +1,20 @@
 # <project-name>
 
+<p align="center">
+  <img alt="Version" src="https://img.shields.io/github/v/release/<owner>/<repo>">
+  <img alt="CI" src="https://github.com/<owner>/<repo>/actions/workflows/dispatch.yml/badge.svg">
+  <img alt="Last commit" src="https://img.shields.io/github/last-commit/<owner>/<repo>">
+  <img alt="License" src="https://img.shields.io/github/license/<owner>/<repo>">
+</p>
+
 > [!TIP]
 > Documentation [<owner>/<repo>](https://<owner>.github.io/<repo>) (v1.0.0).
 
-<What the project is in one sentence: `<project> <mode>` does X, using Y.>
-<What happens when something is missing (fallback / limits).>
+<One line: what it does (`<project> <mode>` does X).>
+<One line, only if any: the limit or fallback.>
 
 ### Table of Contents
+ - [Features](#features)
  - [Dependencies](#dependencies)
  - [Packages](#packages)
  - [Quick Setup 1 (All)](#quick-setup---1-all)
@@ -14,6 +22,12 @@
  - [Usage](#usage)
  - [Unit tests](#unit-tests)
  - [Workflows/Release](#workflowsrelease)
+ - [License](#license)
+
+## Features
+- **<Label>:** <a few words>
+- **<Label>:** <a few words>
+- **<Label>:** <a few words>
 
 ## Dependencies
 
@@ -33,13 +47,12 @@ Build requirements (only needed for the [Quick Setup 1](#quick-setup---1-all)):
 ## Packages
 
 > [!NOTE]
-> The package have a pre-release/unstable version named `<project>-pre`.
-> The `-pre` package is marked as obsolete by any release/stable package (without `-pre`) of the same version or higher.
+> `<project>-pre` is the pre-release: a stable package of the same version or newer replaces it.
 
 | File Name | Content |
 | --------- | ------- |
 | `<project>` | Stable binary |
-| `<project>-pre` | Pre-release/unstable binary |
+| `<project>-pre` | Pre-release binary |
 
 ## Quick Setup - 1 (all)
 > Setup into `/usr/local`
@@ -64,27 +77,26 @@ sudo cmake --install $BUILD_DIR                 # install the binary
 > [!WARNING]
 > Restriction: `fedora-based (rpm)`, `debian-based (deb)`
 
-> [!NOTE]
-> The usage of `sudo` in the script can be remove using `--no-sudo` argument
-
-Run the setup script directly, without cloning the repository manually. It:
-1. Setup the mirror
-2. Import the GPG key used to sign the packages/metadata
-3. Install the package
-
-```bash
-wget -qO- https://raw.githubusercontent.com/<owner>/<repo>/main/setup.sh | bash -s
-```
-
-or with `curl`:
+No clone needed. The script:
+1. adds the mirror
+2. imports its GPG key
+3. installs the package
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/setup.sh | bash -s
 ```
 
+or with `wget`:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/<owner>/<repo>/main/setup.sh | bash -s
+```
+
 | Argument | Effect |
 | -------- | ------ |
-| `--no-sudo` | Run without sudo (requires the script to be run as root already) |
+| `--no-sudo` | No `sudo` (run it as root) |
+
+Known errors: [`readme/install.md`](readme/install.md).
 
 ## Usage
 ```bash
@@ -105,11 +117,14 @@ ctest --test-dir $BUILD_DIR --output-on-failure
 
 ## Workflows/Release
 ### Workflows
-- The workflow `Dispatch (CI/CD)` runs on every push (branch `main` or tag `v*`) and decides what to trigger based on the ref/commit message
+- `Dispatch (CI/CD)`: on each push to `main` or a `v*` tag, picks the jobs
 
 ### Pre-Release (unstable)
-- Pushing a tag that matches the regex `vx.x.x-pre` (`x` stands for the version number: `major`, `minor`, `fix`)
-- Or pushing a commit containing the string `[build]`, preferably in the description
+- a tag `vX.Y.Z-pre`, or a commit with `[build]`
 
 ### Release (stable)
-The release (channel `stable`) can only be triggered by pushing a tag that matches the regex `vx.x.x`
+- a tag `vX.Y.Z` only
+
+## License
+<!-- or Credits / Contributors / Acknowledgements: the closing section -->
+[MIT](https://github.com/<owner>/<repo>/blob/main/LICENSE)
