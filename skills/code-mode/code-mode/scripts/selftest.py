@@ -33,7 +33,7 @@ for folder in (HOME, PROJECT, ROOT / "data"):
 
 from cm import audit, daemon, hub, recipes, rpc, sandbox  # noqa: E402 (the environment above must be set first)
 from cm.engine import Engine  # noqa: E402
-from cm.paths import home, load_config, write_json  # noqa: E402
+from cm.paths import home, load_config, read_json, write_json  # noqa: E402
 
 FAKE = {"command": sys.executable, "args": [str(HERE / "fake_server.py")], "env": {"FAKE_SECRET": "s3cr3t-server"}}
 CODEMODE = [sys.executable, str(HERE / "codemode.py")]
@@ -170,6 +170,7 @@ def test_mcp_entry() -> None:
     picture = client.call_tool("call", {"server": "fake", "tool": "image"}, 60)
     client.close()
     check("mcp entry: instructions and four tools", len(client.instructions) > 500 and names == ["search", "call", "execute", "job"], names)
+    check("mcp entry: the instructions say the priority", "Priority: tokens first" in client.instructions, client.instructions[:300])
     check("mcp entry: search and execute", "fake.echo" in found["content"][0]["text"] and ran["content"][0]["text"].strip() == "via mcp", ran)
     check("mcp entry: call hands an image over", any(part.get("type") == "image" for part in picture["content"]), picture["content"][0])
 
@@ -212,6 +213,32 @@ def test_hook() -> None:
     own = hook({**event, "tool_name": "mcp__codemode__execute"})
     check("hook: codemode's own tools are left alone", own == {})
     check("hook: sizes are learned for search", "media.dump" in json.dumps(__import__("cm.sizes", fromlist=["load"]).load()))
+
+def test_priority() -> None:
+    saved = read_json(home() / "config.json", {})
+    check("priority: tokens by default, the default thresholds", load_config("p1")["priority"] == "tokens" and load_config("p1")["compress_over_tokens"] == 2500)
+    done = subprocess.run([*CODEMODE, "--session", "p1", "priority", "cost"], capture_output=True, text=True, timeout=30, check=False)
+    config = load_config("p1")
+    check("priority: cost for one session, its thresholds", config["priority"] == "cost" and config["compress_over_tokens"] == 6000 and config["remind_after"] == 2, done.stdout + done.stderr)
+    check("priority: the other sessions keep tokens", load_config("p2")["priority"] == "tokens")
+    write_json(home() / "config.json", {**saved, "compress_over_tokens": 3000})
+    check("priority: a threshold set by the user wins over the preset", load_config("p1")["compress_over_tokens"] == 3000)
+    write_json(home() / "config.json", saved)
+    engine = Engine(str(PROJECT), "p1", load_config("p1"))
+    try:
+        first, second = engine.search("echo"), engine.search("echo")
+    finally:
+        engine.close()
+    check("priority: the first search says it, once", first.startswith("priority: $ first") and not second.startswith("priority"), first[:120])
+    event = {"hook_event_name": "PostToolUse", "session_id": "p1", "tool_name": "mcp__media__get_info", "tool_response": [{"type": "text", "text": "x"}]}
+    outputs = [hook(event) for _ in range(2)]
+    check("priority: in cost mode the reminder comes at the 2nd direct call", outputs[0] == {} and "2 direct calls" in outputs[1].get("additionalContext", ""), outputs)
+    done = subprocess.run([*CODEMODE, "--session", "p3", "setup", "--scope", "session", "--priority", "cost"], capture_output=True, text=True, timeout=30, check=False)
+    check("priority: setup --scope session sets it for that session only", load_config("p3")["priority"] == "cost" and load_config("p4")["priority"] == "tokens", done.stdout)
+    subprocess.run([*CODEMODE, "--session", "p3", "priority", "tokens", "--global"], capture_output=True, text=True, timeout=30, check=False)
+    shown = subprocess.run([*CODEMODE, "--session", "p3", "priority"], capture_output=True, text=True, timeout=30, check=False).stdout
+    check("priority: --global writes the config and drops the session override", read_json(home() / "config.json", {}).get("priority") == "tokens" and "(config)" in shown, shown)
+    write_json(home() / "config.json", saved)
 
 def test_setup() -> None:
     write_json(HOME / ".claude.json", {"mcpServers": {"alpha": {"command": "alpha-server"}, "beta": {"command": "beta-server"}}, "other": 1})
@@ -311,7 +338,7 @@ def main(argv: list[str]) -> int:
     write_json(home() / "config.json", {"sources": {"claude_code": False, "claude_desktop": False}, "inline_wait_s": 20, "retry_max_wait_s": 3})
     engine = new_engine()
     with_engine = [test_search, test_call, test_execute, test_rules, test_failures, test_jobs, test_recipes]
-    alone = [test_mcp_entry, test_cli, test_hook, test_transports, test_sandbox, test_discovery, test_setup]
+    alone = [test_mcp_entry, test_cli, test_hook, test_transports, test_sandbox, test_discovery, test_priority, test_setup]
     try:
         for test in with_engine + alone:
             if only and only not in test.__name__:

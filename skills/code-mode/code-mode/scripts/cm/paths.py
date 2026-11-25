@@ -15,7 +15,19 @@ PROTOCOL = "2025-06-18"  # the MCP revision spoken first; a server or client ask
 PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 CHARS_PER_TOKEN = 3.3  # measured on the JSON results of the bench (tiktoken o200k); an estimate, said as such
 SCRIPT = Path(__file__).resolve().parent.parent / "codemode.py"
+PRIORITIES = ("tokens", "cost")
+PRESETS: dict = {  # the hook thresholds of each priority (a value set in config.json wins)
+    "tokens": {},
+    "cost": {"remind_after": 2, "compress_over_tokens": 6000},  # switch to code sooner, cut later (a preview may cost a re-read)
+}
+RULES: dict = {  # what each priority asks of the model, one line (search, instructions, status)
+    "tokens": "tokens first (subscription): keep the context small - one script for 3+ calls, print only what the answer needs; "
+              "a probe of one result before the real run is fine.",
+    "cost": "$ first (API): fewer API calls, each one re-reads the whole context - probe and work in ONE script (defensive .get()), "
+            "independent searches and calls in the same turn, one call with pick for a single big result, a short final answer.",
+}
 DEFAULTS: dict = {
+    "priority": "tokens",  # tokens (subscription: the context) or cost (API: the $, fewer API calls); asked at setup
     "inline_wait_s": 40,  # an execute still running after this goes on as a background job
     "call_timeout_s": 300,  # one tool call
     "connect_timeout_s": 45,  # start + initialize of a server
@@ -99,10 +111,42 @@ def merge(base: dict, over: dict) -> dict:
         out[key] = merge(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
     return out
 
-def load_config() -> dict:
-    """config.json over the defaults."""
+def session_priority(session: str | None) -> str:
+    """The priority set for one session only (`codemode.py priority cost`), or nothing."""
+    if not session:
+        return ""
+    value = read_json(home() / "sessions" / f"{safe_name(session)}.json", {})
+    value = value.get("priority") if isinstance(value, dict) else ""
+    return value if value in PRIORITIES else ""
+
+def set_session_priority(session: str, priority: str | None) -> None:
+    """Set (or clear, with None) the priority of one session."""
+    path = sub("sessions") / f"{safe_name(session)}.json"
+    if priority is None:
+        try:
+            path.unlink()
+        except OSError:
+            pass  # there was none
+        return
+    write_json(path, {"priority": priority, "set": time.time()})
+
+def priority_of(session: str | None, user: dict | None = None) -> tuple[str, str]:
+    """The priority in force and where it comes from: the session, config.json or the default."""
+    user = read_json(home() / "config.json", {}) if user is None else user
+    own = session_priority(session)
+    if own:
+        return own, "this session"
+    value = user.get("priority") if isinstance(user, dict) else None
+    return (value, "config") if value in PRIORITIES else ("tokens", "default")
+
+def load_config(session: str | None = None) -> dict:
+    """The defaults, then the thresholds of the priority in force, then config.json (what the user set wins)."""
     user = read_json(home() / "config.json", {})
-    return merge(DEFAULTS, user if isinstance(user, dict) else {})
+    user = user if isinstance(user, dict) else {}
+    priority, _ = priority_of(session, user)
+    merged = merge(merge(DEFAULTS, PRESETS[priority]), user)
+    merged["priority"] = priority
+    return merged
 
 def save_config(changes: dict) -> None:
     """Keep these values in config.json (only what differs from the defaults is stored)."""

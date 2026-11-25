@@ -20,7 +20,7 @@ from pathlib import Path
 from . import sandbox
 from .daemon import engines
 from .hub import Hub, claude_json, desktop_config, is_self
-from .paths import VERSION, home, load_config, read_json, save_config, script_command, write_json
+from .paths import PRESETS, PRIORITIES, RULES, VERSION, home, load_config, priority_of, read_json, save_config, script_command, set_session_priority, write_json
 
 HOOK_FLAGS = ("remind", "compress")
 
@@ -219,8 +219,21 @@ def desktop(enable: bool, move: list[str], report: list[str]) -> None:
     write_json(home() / "servers.json", moved)
     report.append("Claude Desktop: codemode " + ("declared" if enable else "removed") + " - quit and restart the app to apply")
 
+def priority(value: str, session: str, everywhere: bool) -> str:
+    """Set the priority for this session only, or for every session (config.json)."""
+    if value not in PRIORITIES:
+        raise SetupError(f"priority {value!r}: tokens or cost")
+    if everywhere:
+        save_config({"priority": value})
+        set_session_priority(session, None)
+    else:
+        set_session_priority(session, value)
+    preset = ", ".join(f"{key} {number}" for key, number in PRESETS[value].items()) or "the default thresholds"
+    where = "every session (config.json)" if everywhere else f"this session ({session})"
+    return f"priority {value} for {where}: {RULES[value]} Hooks: {preset}."
+
 def setup(scope: str, cwd: str, move: list[str], hooks: list[str] | None, sandbox_on: bool | None, with_desktop: bool,
-          desktop_move: list[str], shared: bool, dry_run: bool) -> str:
+          desktop_move: list[str], shared: bool, dry_run: bool, chosen: str | None = None, session: str = "") -> str:
     """Do (or only list, with dry_run) what the chosen options mean."""
     claude_scope = {"user": "user", "project": "project" if shared else "local"}.get(scope, "")
     plan: list[str] = []
@@ -236,6 +249,8 @@ def setup(scope: str, cwd: str, move: list[str], hooks: list[str] | None, sandbo
         plan.append(f"install the hook in {settings_path(scope, cwd)}: sizes" + "".join(f" + {flag}" for flag in hooks))
     if sandbox_on is not None:
         plan.append(f"sandbox of the code: {'on' if sandbox_on else 'off'} ({sandbox.describe()})")
+    if chosen is not None:
+        plan.append(f"priority: {chosen} for {'this session' if scope == 'session' else 'every session'}")
     if with_desktop:
         plan.append("declare codemode in Claude Desktop" + (f", move behind it: {', '.join(desktop_move)}" if desktop_move else ""))
     if dry_run:
@@ -260,6 +275,8 @@ def setup(scope: str, cwd: str, move: list[str], hooks: list[str] | None, sandbo
     if sandbox_on is not None:
         save_config({"sandbox": bool(sandbox_on)})
         report.append(f"sandbox of the code: {'on' if sandbox_on else 'off'}")
+    if chosen is not None:
+        report.append(priority(chosen, session, scope != "session"))
     if with_desktop:
         desktop(True, desktop_move, report)
         state["desktop"] = True
@@ -306,9 +323,9 @@ def uninstall(scope: str, cwd: str, purge: bool) -> str:
             report.append(f"data removed: {home()}")
     return "\n".join(report) if report else "codemode was not installed there"
 
-def status(cwd: str) -> str:
+def status(cwd: str, session: str = "") -> str:
     """What is installed where, and what runs."""
-    config = load_config()
+    config = load_config(session)
     claude = read_json(claude_json(), {})
     claude = claude if isinstance(claude, dict) else {}
     local = ((claude.get("projects") or {}).get(cwd) or {}).get("mcpServers") or {}
@@ -325,7 +342,8 @@ def status(cwd: str) -> str:
              f"hooks: {'; '.join(hooks) or 'none installed'}",
              "moved behind codemode: " + (", ".join(f"{name} (from {item.get('origin')})" for name, item in sorted(moved.items())) or "none"),
              "Claude Desktop: " + ("not found" if desk is None else "codemode declared" if "codemode" in ((desk or {}).get("mcpServers") or {}) else "found, codemode not declared"),
-             f"sandbox: {'on' if config.get('sandbox') else 'off'} - {sandbox.describe()}"]
+             f"sandbox: {'on' if config.get('sandbox') else 'off'} - {sandbox.describe()}",
+             "priority: {0} ({1})".format(*priority_of(session))]
     running = engines()
     lines.append("engines running: " + ("; ".join(f"{item['session']} ({item['kind']}, pid {item['pid']})" for item in running) or "none"))
     return "\n".join(lines)

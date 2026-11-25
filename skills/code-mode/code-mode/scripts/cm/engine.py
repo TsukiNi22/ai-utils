@@ -16,7 +16,7 @@ import time
 
 from . import audit, profiles, recipes, sandbox, sizes
 from .hub import Hub, ToolFailure, code_tool
-from .paths import compact, load_config, safe_name, script_command, shape, sub, tokens_label
+from .paths import RULES, compact, load_config, priority_of, safe_name, script_command, shape, sub, tokens_label
 
 SECRET_ENV = re.compile(r"key|token|secret|passw|credential|auth|cookie|session", re.I)  # never given to the code
 OUTPUT_LIMIT = 4000000  # characters of output kept for one job
@@ -224,7 +224,8 @@ class Engine:
     def __init__(self, cwd: str, session: str, config: dict | None = None) -> None:
         self.cwd = cwd
         self.session = session
-        self.config = config if config is not None else load_config()
+        self.config = config if config is not None else load_config(session)
+        self._told_priority = ""  # the priority last said in a search answer
         self.hub = Hub(cwd, self.config, session)
         self.jobs: dict[str, Job] = {}
         self.last_request = time.time()
@@ -278,6 +279,9 @@ class Engine:
     def search(self, query: str, server: str = "", detail: bool = False, refresh: bool = False) -> str:
         """Tools (and recipes) matching words or a regex; without a query, the servers and what they hold."""
         tools, errors = self.hub.index(refresh)
+        priority, _ = priority_of(self.session)
+        opening = [] if priority == self._told_priority else [f"priority: {RULES[priority]}"]
+        self._told_priority = priority
         named = {name.lower(): name for name in tools}
         if query.strip().lower() in named and not server:  # a server name alone: every tool name of that server
             server, query = named[query.strip().lower()], ""
@@ -333,7 +337,8 @@ class Engine:
         lines += [f"! {name}: unavailable ({message[:160]})" for name, message in sorted(errors.items())
                   if not quiet and (not server or name == server)]
         lines += [f"! {note}" for note in self.hub.notes] if not quiet else []
-        return "\n".join(lines) if lines else "no MCP server is declared (Claude Code, Claude Desktop or the codemode config)"
+        lines = lines or ["no MCP server is declared (Claude Code, Claude Desktop or the codemode config)"]
+        return "\n".join(opening + lines)
 
     def _notes(self, server: str, tools: dict[str, dict], always: bool) -> list[str]:
         """The profile notes of a server: once per session, or each time they are asked for."""

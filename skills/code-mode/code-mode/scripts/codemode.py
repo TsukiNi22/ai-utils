@@ -8,8 +8,9 @@
     codemode.py recipe [list | show NAME | rm NAME | prune]
     codemode.py stats [--all]                          what code mode kept out of the context (this session / everything)
     codemode.py status | doctor | off                  what is installed and running / check every server / stop this session's engine
+    codemode.py priority [tokens | cost] [--global]    what to save first: tokens (subscription) or $ (API); this session or all
     codemode.py setup --scope session|project|user [--shared] [--move a,b] [--hooks remind,compress|none] [--sandbox on|off]
-                      [--desktop] [--desktop-move a,b] [--dry-run]
+                      [--priority tokens|cost] [--desktop] [--desktop-move a,b] [--dry-run]
     codemode.py uninstall [--scope project|user|all] [--purge]
     codemode.py serve                                  the MCP server (stdio) a client starts: tools search, call, execute, job
     codemode.py hook [remind] [compress]               the Claude Code PostToolUse hook (event JSON on stdin)
@@ -86,6 +87,10 @@ def parser() -> argparse.ArgumentParser:
     setup.add_argument("--move", default="", help="user scope servers to put behind codemode (a,b or all)")
     setup.add_argument("--hooks", default=None, help="remind,compress | remind | compress | none")
     setup.add_argument("--sandbox", default=None, choices=["on", "off"])
+    setup.add_argument("--priority", default=None, choices=["tokens", "cost"], help="tokens (subscription) or cost ($, API)")
+    priority = sub.add_parser("priority", help="tokens (subscription) or cost ($, API) first")
+    priority.add_argument("value", nargs="?", default="", choices=["", "tokens", "cost"])
+    priority.add_argument("--global", dest="everywhere", action="store_true", help="every session (config.json), not only this one")
     setup.add_argument("--desktop", action="store_true")
     setup.add_argument("--desktop-move", default="")
     setup.add_argument("--dry-run", action="store_true")
@@ -101,14 +106,15 @@ def parser() -> argparse.ArgumentParser:
 def names(text: str) -> list[str]:
     return [name.strip() for name in text.split(",") if name.strip()]
 
-def install(args: argparse.Namespace, cwd: str) -> str:
+def install(args: argparse.Namespace, cwd: str, key: str) -> str:
     from cm import setup  # only this command needs it
     if args.command == "uninstall":
         return setup.uninstall(args.scope, cwd, args.purge)
     move = sorted(setup.movable()) if args.move == "all" else names(args.move)
     hooks = None if args.hooks is None else [flag for flag in names(args.hooks) if flag in setup.HOOK_FLAGS]
     sandbox_on = None if args.sandbox is None else args.sandbox == "on"
-    return setup.setup(args.scope, cwd, move, hooks, sandbox_on, args.desktop, names(args.desktop_move), args.shared, args.dry_run)
+    return setup.setup(args.scope, cwd, move, hooks, sandbox_on, args.desktop, names(args.desktop_move), args.shared, args.dry_run,
+                       args.priority, key)
 
 def request_of(args: argparse.Namespace) -> tuple[str, dict]:
     """The engine request a command line means."""
@@ -159,7 +165,15 @@ def main(argv: list[str]) -> int:
         return daemon.run_daemon(key, args.cwd or cwd, args.owner)
     try:
         if args.command in ("setup", "uninstall"):
-            sys.stdout.write(install(args, cwd) + "\n")
+            sys.stdout.write(install(args, cwd, key) + "\n")
+            return 0
+        if args.command == "priority":
+            from cm import setup
+            if args.value:
+                sys.stdout.write(setup.priority(args.value, key, args.everywhere) + "\n")
+            else:
+                value, origin = paths.priority_of(key)
+                sys.stdout.write(f"priority: {value} ({origin}) - {paths.RULES[value]}\n")
             return 0
         if args.command == "doctor":
             from cm import setup
@@ -167,7 +181,7 @@ def main(argv: list[str]) -> int:
             return 0
         if args.command == "status":
             from cm import setup
-            sys.stdout.write(setup.status(cwd) + "\n")
+            sys.stdout.write(setup.status(cwd, key) + "\n")
             if daemon.locate(key) is not None:
                 sys.stdout.write(daemon.request(key, "status", {}, cwd, autostart=False)["text"] + "\n")
             return 0

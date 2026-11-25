@@ -1,7 +1,7 @@
 ---
 name: code-mode
 description: Code mode for the local MCP servers (the Cloudflare / Anthropic idea, made for this computer) - instead of one tool call at a time with every result in the context, one Python script calls the tools and only what it prints comes back (-50 to -90% tokens on batches, chains and big results). One engine, two entries chosen by themselves (MCP tools search / call / execute / job when registered, else a command line), background jobs, usage limits waited and partial failures resumed, recipes kept like a cache, measured result sizes, profiles for Blender and Roblox Studio, Claude Code hooks (reminder, compressor), optional OS sandbox. Use whenever a task needs 3+ MCP calls, a loop over items, a chain of calls or a big MCP result to filter, when the user says "code mode", "/code-mode", "économise les tokens des MCP", or asks to set it up (this session, a project, the whole computer, Claude Desktop), its status, stats or removal.
-argument-hint: "[task | setup | status | doctor | stats | recipes | off | uninstall]"
+argument-hint: "[task | setup | tokens | cout | status | doctor | stats | recipes | off | uninstall]"
 hooks:
   PostToolUse:
     - matcher: "mcp__.*"
@@ -41,6 +41,7 @@ costs more than a direct one: **choose per task** (section 3).
 | `setup` (+ `project`, `pc`, `desktop`) | section 5 |
 | `status`, `doctor`, `stats` (+ `all`), `recipes` | run `cm status` / `cm doctor` / `cm stats [--all]` / `cm recipe list` and show the result |
 | `off` | `cm off`: stops the engine of this session (it also stops by itself with the session) |
+| `tokens`, `cout` / `cost` / `$` | `cm priority tokens` / `cm priority cost`: what to save first in this session only (section 3); `--global`: every session |
 | `uninstall` | section 5, last line |
 
 ## 2. Which entry in this session
@@ -72,7 +73,15 @@ Search with precise words or the tool names, never with the server name alone (i
 size of its results. `notes(server): ...` under a result = the profile of that server (Blender, Roblox Studio, yours in
 `<data>/profiles/*.md`): read it once, it says how to use that server cheaply.
 
-## 3. Direct call, `call` or `execute`: tokens first, seconds after
+## 3. Direct call, `call` or `execute`: the priority first, seconds after
+The **priority** (`cm priority`; the first `search` of a session starts with it) says what to save:
+- `tokens` (default, a subscription: its limits count the context): the table below as it is.
+- `cost` ($, an API key: each API call re-reads the whole context, the output is the dearest): **fewer API calls**
+  on top of the table - the probe and the work in one script (defensive `.get()`, the shape printed only when a key
+  is missing), the independent searches and calls in the same turn, one `call --pick` for a single big result, the
+  MCP entry when it is registered, a short final answer (never the script's output copied again). Its hooks remind at
+  the 2nd direct call and compress only over ~6,000 tokens (a preview can cost one more call to read the file).
+
 | The task | Use |
 |---|---|
 | 1-2 calls, small result needed as it is | the server's own tool when it is loaded here, else `call` |
@@ -117,24 +126,30 @@ print(len(ok(infos)), "ok,", len(failed(infos)), "failed")   # print only what t
   `cm run --recipe name --standalone` works without a session (cron, CI). Save what will clearly be asked again.
 
 ## 5. Setup, status, removal
-`/code-mode` alone needs no setup. `setup` makes it permanent: ask with `interactive-questions` (one popup, French):
+`/code-mode` alone needs no setup. `setup` makes it permanent: ask with `interactive-questions` (French), first popup:
 1. **"Où l'installer ?"** - `Ce projet` (`--scope project`) · `Tout le PC (Recommended)` (`--scope user`) · `Claude
    Desktop aussi` (adds `--desktop`).
-2. **"Quels serveurs passer derrière codemode ?"** (multi choice, only with `--scope user`; list them with
-   `cm setup --scope user --move all --dry-run`): the chosen ones leave Claude Code's own list (their tool names leave
-   the context, they only start when used) and stay usable through codemode; say that direct calls to them are gone.
-   Keep direct a server whose images are looked at all the time.
+2. **"Que prioriser ?"** - `Tokens (abonnement) (Recommended)`: the context, what a Pro / Max subscription counts ·
+   `Coût en $ (API)`: fewer API calls, for a session billed per token (an API key) -> `--priority tokens|cost`.
+   Say that `/code-mode cout` or `/code-mode tokens` changes it for one session.
 3. **"Quels hooks ?"** (multi) - `Rappel (Recommended)` · `Compresseur` -> `--hooks remind,compress` (`none`: only sizes).
 4. **"Sandbox du code ?"** - `Non (Recommended)` · `Oui` (`cm doctor` says whether it exists here: bubblewrap on Linux,
    sandbox-exec on macOS, none on Windows). **No answer = off**: `--sandbox off`.
 
-Then `cm setup --scope user --move ffmpeg,kdenlive --hooks remind,compress --sandbox off [--desktop] [--dry-run]`, show
+Second popup, only with `--scope user`: **"Quels serveurs passer derrière codemode ?"** (multi choice; list them with
+`cm setup --scope user --move all --dry-run`): the chosen ones leave Claude Code's own list (their tool names leave the
+context, they only start when used) and stay usable through codemode; say that direct calls to them are gone. Keep
+direct a server whose images are looked at all the time.
+
+Then `cm setup --scope user --priority tokens --move ffmpeg,kdenlive --hooks remind,compress --sandbox off [--desktop]
+[--dry-run]`, show
 its report, and say: open sessions keep their tools until restarted; Claude Desktop must be quit and reopened.
 `cm status` shows what is installed and running; `cm uninstall [--scope project|user|all] [--purge]` gives the moved
 servers back and removes the registration and the hooks (ask which scope first).
 
 ## 6. Rules
-- Tokens first: follow section 3 even when a direct call "would be simpler" for a loop; never `execute` for one call.
+- The priority first (section 3), tokens by default: follow it even when a direct call "would be simpler" for a loop;
+  never `execute` for one call.
 - Never `--write` / `allow_write` unless the request implies a change; never `--move`, `uninstall` or `--purge` without
   the user's answer; a `.mcp.json` server not approved in Claude Code is refused: approve it there, never around it.
 - The code runs on the user's computer with his rights (inside the OS sandbox only when he turned it on: no network,

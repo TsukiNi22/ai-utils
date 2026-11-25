@@ -11,10 +11,11 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from .engine import Engine
-from .paths import PROTOCOL, PROTOCOLS, VERSION
+from .paths import PROTOCOL, PROTOCOLS, RULES, VERSION, priority_of
 
 INSTRUCTIONS = """codemode drives the user's local MCP servers through code: only what your code prints enters the context.
-Choose by token cost:
+{priority}
+Choose:
 - 1-2 calls with a small result you need as it is: `call` (or the server's own tool when it is loaded here).
 - 3 calls or more, a loop over items, a chain where a result feeds the next call, or a result to filter / count / aggregate (search shows `~Nk tok` on tools measured to return a lot): `execute` with one Python script.
 - An image you must look at: `call` (execute only gives file paths).
@@ -114,7 +115,8 @@ class Server:
         if method == "initialize":
             asked = str(params.get("protocolVersion") or "")
             result: object = {"protocolVersion": asked if asked in PROTOCOLS else PROTOCOL, "capabilities": {"tools": {"listChanged": False}},
-                              "serverInfo": {"name": "codemode", "title": "Code mode", "version": VERSION}, "instructions": INSTRUCTIONS}
+                              "serverInfo": {"name": "codemode", "title": "Code mode", "version": VERSION},
+                              "instructions": INSTRUCTIONS.replace("{priority}", "Priority: " + RULES[priority_of(self.engine.session)[0]])}
         elif method == "ping":
             result = {}
         elif method == "tools/list":

@@ -81,8 +81,8 @@ def run(flags: list[str]) -> int:
     name = str(event.get("tool_name") or "")
     if event.get("hook_event_name") != "PostToolUse" or not name.startswith("mcp__"):
         return 0
-    config = load_config()
     session = str(event.get("session_id") or "default")
+    config = load_config(session)  # the thresholds of the priority of this session
     server, tool = split(name)
     state_path = sub("run") / f"hook-{safe_name(session)}.json"
     state = read_json(state_path, {})

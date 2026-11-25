@@ -54,6 +54,7 @@ One engine in Python (standard library only, Linux / macOS / Windows), two entri
 - **Profiles**: notes per kind of server, shown once per session by `search`. Shipped: Blender and Roblox Studio, whose
   `[code]` tools already run a script inside the application (the whole task in one script, a summary printed). Yours go
   in `<data>/profiles/*.md`.
+- **Priority**: tokens by default (a subscription), or $ (an API key: fewer API calls). Asked at setup.
 - **Hooks** (Claude Code): a reminder after 3 direct calls in a row on one server, and a compressor that replaces a
   direct result over ~2,500 tokens by a preview and the path of the full text (a smaller one handed over escaped twice
   comes back as its plain text: 5 to 25% fewer tokens).
@@ -73,7 +74,8 @@ One engine in Python (standard library only, Linux / macOS / Windows), two entri
 ## Usage
 ```bash
 /code-mode                      # this session, nothing installed
-/code-mode setup                # asks: this project, the whole computer, Claude Desktop, which servers, hooks, sandbox
+/code-mode setup                # asks: where, priority (tokens by default), hooks, sandbox, which servers
+/code-mode cout                 # this session: fewer API calls first ($, API key); /code-mode tokens to go back
 /code-mode status | stats | doctor | off | uninstall
 ```
 ```bash
@@ -90,6 +92,7 @@ python3 scripts/bench.py        # direct calls against code mode on scripted tas
 
 | Key | Default | Meaning |
 |---|---|---|
+| `priority` | `tokens` | `tokens` (subscription) or `cost` ($, API); `cost` sets `remind_after` 2, `compress_over_tokens` 6000 |
 | `inline_wait_s` | 40 | a run still going after this continues as a job |
 | `max_output_chars` | 12000 | a longer output goes to a file, its head and tail come back |
 | `retry_attempts`, `retry_max_wait_s` | 3, 30 | tries on a usage limit; a longer wait is reported, not slept |
