@@ -12,7 +12,9 @@ metadata:
 **A new project**: the `CMakeLists.txt` of **cpp_project_template** (made by `cpp-project`) is the reference and is kept
 as generated - one file for every kind (`<NAME>_KIND` binary / library / header-only, `<NAME>_PACKAGE_BIN` / `_LIB` /
 `_DEV`, `<NAME>_SHARED_LIB`), `SRC` / `SRC_SHARED`, the `release` / `install_release` / `package_release` targets, CPack
-with the `-op` / `-db` / `-as` variants and the `mingw64-` packages, the MinGW toolchain `cmake/toolchain/mingw-w64.cmake`.
+with the `-op` / `-db` / `-as` variants and the `mingw64-` packages (named in lower case with `-`: `PACKAGE_TARGET`,
+`My_Lib` -> `my-lib`, `libmy-lib`), the exception headers in `include/<name>/exception/` (`GENERATED_EXCEPTION_DIR`), the
+MinGW toolchain `cmake/toolchain/mingw-w64.cmake`.
 The templates below are for an existing project or a CMake written by hand, in the same style.
 
 Templates (copy, then replace `<name>` = target/package name, `<NAME>` = upper-case option prefix,
@@ -89,8 +91,9 @@ it is ignored (or re-runs the configuration). Sections, each introduced by the 3
   `add_custom_target(generated_<internal|external>_exception_header)` + `add_dependencies(${TARGET} ...)`
   (internal = libutils itself, external = a project using libutils).
 - libutils dependency: `find_package(utils <min version> CONFIG REQUIRED) # Check utils dependencies existance`
-  + `utils::utils`; `<min version>` is `4.0.0` at least for a new project (libutils v4: no v3 compatibility names,
-  `SameMajorVersion`: a v3 requirement refuses an installed v4).
+  + `utils::utils`; `<min version>` = the installed major, `5.0.0` with libutils v5 (`SameMajorVersion`: a 4.x
+  requirement refuses an installed 5.x and CMake takes another installed 4.x or stops; `libutils-setup` raises it).
+  A C target calling the C API: `project(<name> LANGUAGES C CXX)`, linked by the C++ linker.
 - Windows (libutils v4.1.0: packages `mingw64-libutils*` in the MinGW sysroot; `set(LIBUTILS_VERSION 4.1.0)` then for a
   project built for Windows): the same CMake builds for Windows x86_64 with a MinGW toolchain (the template's
   `cmake/toolchain/mingw-w64.cmake` copied into a project without one, `mingw64-cmake` on Fedora, else
@@ -115,7 +118,8 @@ it is ignored (or re-runs the configuration). Sections, each introduced by the 3
   conflict, release number `1` for stable / `${PACKAGE_RELEASE}` (CI run number) / `0`.
 - New target / output written in the sources (executable at the root, plugin dir, generated file): update the
   `.gitignore` with `python3 <cpp-project>/scripts/update_gitignore.py <root>`.
-- Root `Makefile` wrapper (`all`, `clean`, `fclean`, `re`) calling CMake with `BUILD_DIR := build`.
+- Root `Makefile` wrapper (`all`, `clean`, `fclean`, `re`) calling CMake with `BUILD_DIR := build`; the one of
+  cpp_project_template adds `debug`, `asan`, `optimized`, `tests`, `release`, `package`, `install`.
 
 ## Checking (xstyle)
 When `xstyle` is installed (`command -v xstyle`), check what was written or reviewed with it instead of re-reading the

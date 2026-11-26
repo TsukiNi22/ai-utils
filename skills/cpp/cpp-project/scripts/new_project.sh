@@ -102,5 +102,17 @@ if ! $LIBUTILS; then
     echo "warning: --no-libutils: rewrite main.cpp / ${CORE}-init.cpp, the CMakeLists.txt and tests/CMakeLists.txt (cmake-style, cpp-class std mode)" >&2
 fi
 
+# =========================
+# Installed libutils of a newer major than the template requires (5.x refuses find_package(utils 4.x)): raised
+# =========================
+if $LIBUTILS; then
+    for dir in "$(dirname "$0")/../../../libutils/libutils-setup" "$HOME/.claude/skills/libutils-setup"; do
+        if [[ -f "$dir/scripts/setup_project.py" ]]; then
+            python3 "$dir/scripts/setup_project.py" "$TARGET" 2> /dev/null | grep -F 'find_package(utils):' | sed 's/^ */libutils: /' || true
+            break
+        fi
+    done
+fi
+
 python3 "$(dirname "$0")/update_gitignore.py" "$TARGET" > /dev/null || echo "warning: .gitignore not updated" >&2
 echo "Project '$NAME' ($KIND, core '$CORE', ${PAGES#--}) created in '$TARGET' from $FROM"

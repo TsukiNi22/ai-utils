@@ -5,7 +5,7 @@
 #
 # Looks for utils/attribute/Attribute.hpp hard imported in the project first (include/, lib/,
 # external/, FetchContent _deps...), then installed on the computer, and prints every
-# `#define _x` of Attribute.hpp and of the C++ version file used (c++20.hpp, else c++17/c++14).
+# `#define _x` of Attribute.hpp, c++.hpp / common.hpp (v5.0.0+) and of the C++ version file used (c++20.hpp, else c++17/c++14).
 # Exit code 1 = no attribute file found (write the standard [[...]] form).
 
 set -uo pipefail # no -e: a grep without match is an answer, not an error (xstyle: ignore-file SH-STRICT)
@@ -33,11 +33,15 @@ fi
 
 DIR="$(dirname "$FOUND")"
 echo "# $DIR"
+# v5.0.0+: Attribute.hpp only redirects: _legacy / _migration in c++.hpp, the shared macros in common.hpp
+FILES=("$DIR/Attribute.hpp")
+for shared in c++.hpp common.hpp; do [[ -f "$DIR/$shared" ]] && FILES+=("$DIR/$shared"); done
 for version in c++20 c++17 c++14; do
     if [[ -f "$DIR/$version.hpp" ]]; then
-        grep -hE "^\s*#define _[a-z]" "$DIR/Attribute.hpp" "$DIR/$version.hpp" | sed -E 's/^\s+//' | sort -u -t' ' -k2,2
+        FILES+=("$DIR/$version.hpp")
         break
     fi
 done
-grep -q "hardware_destructive_interference_size" "$DIR/Attribute.hpp" && echo "# std::hardware_destructive_interference_size / std::hardware_constructive_interference_size guaranteed (fallback 64)"
+grep -hE "^\s*#define _[a-z]" "${FILES[@]}" | sed -E 's/^\s+//' | sort -u -t' ' -k2,2
+grep -q "hardware_destructive_interference_size" "${FILES[@]}" && echo "# std::hardware_destructive_interference_size / std::hardware_constructive_interference_size guaranteed (fallback 64)"
 exit 0

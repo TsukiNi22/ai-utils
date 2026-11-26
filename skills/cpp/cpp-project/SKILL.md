@@ -1,8 +1,8 @@
 ---
 name: cpp-project
-description: Set up a new C++20 project in Tsukini's way with the setup.sh of the cpp_project_template repository (TsukiNi22/cpp_project_template) - name / core class renaming, kind of project (binary, static .a or shared .so library, header-only; RPM/DEB/Arch packages of every variant, Windows MinGW-w64 build and packages), libutils v4 or not, exception codes, GTest tests, the CI/CD workflows of the template (dispatch, unit tests, build, packages, GitHub release from the CHANGELOG, docs) and the optional gh-pages branch (signed packages repository + docs), install script, README/CHANGELOG/docs written by the template, xstyle pre-commit hook - using the other skills (cmake-style, cpp-class, libutils-exception, readme-style, git-conventions, ci-cd, html-doc). Use whenever the user wants to create, bootstrap, initialize or scaffold a new C++ project or repository.
+description: Set up a new C++20 project in Tsukini's way with the setup.sh of the cpp_project_template repository (TsukiNi22/cpp_project_template) - name / core class renaming, kind of project (binary, static .a or shared .so library, header-only; RPM/DEB/Arch packages of every variant, Windows MinGW-w64 build and packages), libutils or not (its requirement raised to the installed major, v5), exception codes, GTest tests, the CI/CD workflows of the template (dispatch, lint, unit tests with ASan, build, packages, GitHub release from the CHANGELOG with the packages attached, docs) and the optional gh-pages branch (signed packages repository + docs), install script, README/CHANGELOG/docs written by the template, xstyle pre-commit hook - using the other skills (cmake-style, cpp-class, libutils-exception, readme-style, git-conventions, ci-cd, html-doc). Use whenever the user wants to create, bootstrap, initialize or scaffold a new C++ project or repository.
 metadata:
-  summary: 'Sets up a new C++ project with the `setup.sh` of [cpp_project_template](https://github.com/TsukiNi22/cpp_project_template) (never committing): renaming, binary / `.a` / `.so` / header-only, RPM/DEB packages of every variant, Linux + Windows (MinGW-w64) builds and packages, libutils (v4.1) or not, exceptions, GTest, the template''s workflows (dispatch, unit tests, build, packages, GitHub release from the CHANGELOG, docs), optional gh-pages branch (signed packages repository + docs), README/CHANGELOG/docs, using the other skills.'
+  summary: 'Sets up a new C++ project with the `setup.sh` of [cpp_project_template](https://github.com/TsukiNi22/cpp_project_template) (never committing): renaming, binary / `.a` / `.so` / header-only, RPM/DEB/Arch packages of every variant, Linux + Windows (MinGW-w64) builds and packages, libutils (raised to the installed major) or not, exceptions, GTest, the template''s workflows (dispatch, lint, unit tests + ASan, build, packages, GitHub release from the CHANGELOG, docs), optional gh-pages branch (signed packages repository + docs), README/CHANGELOG/docs, using the other skills.'
 ---
 
 # New C++ project
@@ -13,11 +13,13 @@ The base is always **`cpp_project_template`** and **its own `setup.sh`** (local 
 `~/personal_delivery/cpp/cpp_project_template`, otherwise `https://github.com/TsukiNi22/cpp_project_template.git`): it
 renames, adapts the copy to the kind, writes the README, the CHANGELOG, the docs and the gh-pages branch. This skill
 drives it without git actions, then completes what it does not do (libutils freshness, no-libutils, `.gitignore`, the
-custom CI/CD, the checks). Skill synced with the template at `d3fd2a1` (2026-10-30: the packages `setup.sh` only registers the mirror, `--install` installs; before: Arch Linux packages, xstyle pre-commit hook, setup workflow fixes; before: Windows build, one CMake for
-every kind, `SRC` / `SRC_SHARED`, workflows dispatch / unit-tests / build / build-packages / release / docs, gh-pages,
-`install.sh`, CHANGELOG written by `setup.sh`, libutils `>= 4.1.0`): when its `HEAD` is newer
-(`git -C <clone> log --oneline 7fa7c9f..HEAD`, and `origin/main` after a `git fetch`), read its README (*Quick Setup*,
-*Generated project*, *Workflows/Release*) and its `setup.sh --help` before relying on the steps below.
+custom CI/CD, the checks). Skill synced with the template at `e4a13c2` (2026-11-24: `lint.yml`, unit tests under ASan,
+packages attached to the GitHub release, tag version checked, package names in lower case, exception headers in
+`include/<name>/exception/`, `make` targets, `setup.sh --force`, the README detail in `readme/`; before: the packages
+`setup.sh` only registers the mirror (`--install`), Arch packages, xstyle pre-commit hook, Windows build, one CMake for
+every kind, `SRC` / `SRC_SHARED`, gh-pages, libutils `>= 4.1.0`): when its `HEAD` is newer
+(`git -C <clone> log --oneline e4a13c2..HEAD`, and `origin/main` after a `git fetch`), read its `readme/setup.md`,
+`readme/project.md`, `readme/workflows.md`, `readme/packages.md` and `setup.sh --help` before relying on the steps below.
 The other skills, each loaded when its step comes: `cmake-style` (CMake), `cpp-class` (classes, header question, main),
 `libutils-exception` (codes), `readme-style`, `git-conventions` (CHANGELOG, commits, branches), `ci-cd`, `html-doc`.
 `SKILL_DIR` = the directory of this file.
@@ -26,8 +28,10 @@ The other skills, each loaded when its step comes: `cmake-style` (CMake), `cpp-c
 First, once per conversation: the freshness check of the `libutils` skill (`bash <libutils skill>/scripts/check.sh`,
 section "Freshness check" of `libutils/SKILL.md`). Outdated -> reuse the answer already given in this conversation,
 else ask once (continue / update the installed libutils with `libutils-install` / the project's requirement with
-`libutils-setup` / the skills reference) and remember it. The template needs libutils **`4.1.0`** at least
+`libutils-setup` / the skills reference) and remember it. The template requires libutils **`4.1.0`**
 (`set(LIBUTILS_VERSION 4.1.0)`: the Windows packages `mingw64-libutils*`); older installed -> `libutils-install`.
+libutils accepts its own major only (5.x refuses `find_package(utils 4.1.0)`): with a newer major installed,
+`new_project.sh` raises `LIBUTILS_VERSION` to it (`libutils-setup`, line `libutils: find_package(utils): 4.1.0 -> 5.0.0`).
 
 ## 1. Ask (one AskUserQuestion call, French)
 Name and core class (PascalCase) are usually in the request: ask in plain text if missing. Both are **C++
@@ -62,6 +66,8 @@ repository. What `setup.sh` does (template README, *Quick Setup*):
 - the kind: `<NAME>_KIND` of the CMake, the `PACKAGE_BIN` / `PACKAGE_LIB` / `PACKAGE_DEV` of `build.yml` and
   `build-packages.yml`; `library`: no `main.cpp`; `header-only`: no `src/`, the class defined in its header, its test
   rewritten;
+- packages named after `<name>` in lower case with `-` (`My_Project` -> `my-project`, `libmy-project`, never
+  `liblib...`), the generated exception headers in `include/<name>/exception/`;
 - writes `README.md` (dependencies, packages, setup, usage, workflows), `CHANGELOG.md` (first entry `## v1.0.0 - <date>`,
   the `git-conventions` format read by the release workflow) and `docs/` (technical page placeholder + the project graph);
 - gh-pages: the packages setup script as root `setup.sh` (from `install.sh`: mirror + GPG key only, `--install` to also
@@ -105,10 +111,11 @@ The template's workflows are kept as generated when the project is a GitHub repo
 | Workflow | What |
 |---|---|
 | `dispatch.yml` | every push on `main` / tag `v*` (not `*.md` / `*.txt` / `docs/` only): decides what runs from the ref / message |
-| `unit-tests.yml` | always first: Linux (`unit-tests` image) and Windows (`mingw64-unit-tests`, under `wine`) |
+| `lint.yml` | every push on `main`: `shellcheck`, `actionlint`, `xstyle` (a missing tool is a warning) |
+| `unit-tests.yml` | always first: Linux Debug then AddressSanitizer (`unit-tests` image), Windows (`mingw64-unit-tests`, under `wine`) |
 | `build.yml` | build check only (Linux `ci`, Windows `mingw64-ci`) when no packages are built |
-| `build-packages.yml` | RPM/DEB/Arch (+ `mingw64-*`), checked against `PACKAGE_*`; gh-pages: signed and published (5 last `-pre` kept) |
-| `release.yml` | the GitHub release of a tag from its `CHANGELOG.md` section (`## vX.Y.Z - date` / `## [vX.Y.Z-pre] - date`) |
+| `build-packages.yml` | RPM/DEB/Arch (+ `mingw64-*`), checked against `PACKAGE_*`, a tag whose version is not `project(... VERSION)` refused; gh-pages: signed and published (5 last `-pre` kept) |
+| `release.yml` | the GitHub release of a tag from its `CHANGELOG.md` section (`## vX.Y.Z - date`, `## [vX.Y.Z-pre] - date`, else `## [pre-release]` for a `-pre` tag), the packages attached |
 | `docs.yml` (gh-pages) | `docs/` copied on `gh-pages` at each push changing it |
 - Triggers (`git-conventions`): `[build]` in a commit or a tag `vX.Y.Z-<suffix>` = pre-release packages (`-pre`), a tag
   `vX.Y.Z` = stable packages + GitHub release (its CHANGELOG section must exist), `[ignore]` = no CI, `[release]` =
@@ -147,8 +154,10 @@ assets of the project): add them under the block in a `## <Name>` group like the
   (`git-conventions`, no AI attribution); team project -> `dev` branch + protection of `main` (`git-conventions`).
 
 ## 8. Check
-- `make` (or `cmake -S . -B build && cmake --build build`), run the binary (`./<name> --help`), `-DBUILD_TESTS=ON` +
-  `ctest`, `cmake --build build --target get_unregistered_files` (no unregistered `.cpp`).
+- `make` (or `cmake -S . -B build && cmake --build build`), run the binary (`./<name> --help`), `make tests` (Debug +
+  `ctest`), `cmake --build build --target get_unregistered_files` (no unregistered `.cpp`). The `Makefile` also has
+  `debug`, `asan`, `optimized`, `release`, `package`, `install`, `clean`, `fclean`, `re`; its `--parallel $(nproc)` is
+  sized for the CI: on a small machine build through `memory-guard` with a number (`cmake --build build --parallel 4`).
 - Windows: the toolchain build above, then `WINEPATH=/usr/x86_64-w64-mingw32/sys-root/mingw/bin wine ./<name>.exe --help`.
 - Library: `cmake --install build --prefix <tmp>` then `find_package(<name>)` from a tiny consumer.
 - `git status --ignored --short` after a build: every produced file is ignored, no source is.
