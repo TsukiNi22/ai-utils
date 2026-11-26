@@ -9,7 +9,7 @@ one teaches the assistant how I work (code style, file layout, tooling), so that
 One installer, [`setup.sh`](setup.sh), for the skills, the [tools](#tools) and the global [context](#context).
 
 <!-- generated:counts -->
-**64 skills** in 14 categories and **9 routers**.
+**66 skills** in 14 categories and **9 routers**.
 <!-- /generated:counts -->
 
 ### Table of Contents
@@ -92,6 +92,8 @@ Once installed, a skill is used **automatically** when the request matches it, o
 | follow a session from Discord, Telegram, the phone (ntfy), Slack, a file, an API or a port | `/session-log <url or path...>`, `/session-log stop` |
 | use my audio / image / video / 3D / VFX tools | `/setup-studio` once (scans, fills the gaps, generates `/studio`), then `/studio` |
 | free disk space | *"clean my computer"* (`computer-clean`) |
+| keep the RAM / swap safe during heavy jobs | *"fais gaffe à la mémoire"* (`memory-guard`) |
+| a long render / generation resumable after a crash | *"render it en slicing"* (`sliced-work`) |
 | spend fewer tokens on MCP servers (many calls, a loop, a big result) | `/code-mode` (this session), `/code-mode setup` (a project, the computer, Claude Desktop) |
 
 ## Routers
@@ -132,7 +134,7 @@ each skill does, what it installs with it) and examples.
 | [Legal](skills/legal/README.md) | Its license, and the compliance check and setup - GDPR / RGPD, cookies, legal notice, terms, consumer law, accessibility (RGAA, EAA), language, licenses and credits, mandatory mentions, DSA, AI Act, CRA, NIS2, Data Act - global or web | `legal-check`, `legal-setup`, `license` |
 | [UX](skills/ux/README.md) | Several languages (multilingual-project, multilingual-website) and visual modes light / dark / system / high contrast (color-modes-project, color-modes-website) | `color-modes-project`, `color-modes-website`, `multilingual-project`, `multilingual-website` |
 | [Studio](skills/studio/README.md) | Scans the audio, image, video, 3D and simulation / VFX / rendering tools of the computer (programs, MCP servers, connectors, GPU), finds free tools for what is missing and installs the accepted ones, then generates a /studio router and one skill per domain saying which tool to use, where, how and why | `setup-studio` |
-| [System](skills/system/README.md) | Free space on the computer and in the data of Claude Code / claude-cluster, chosen in a QCM | `computer-clean` |
+| [System](skills/system/README.md) | Free space on the computer and in the data of Claude Code / claude-cluster, chosen in a QCM, heavy jobs kept inside a memory budget, long jobs in resumable slices merged at the end | `computer-clean`, `memory-guard`, `sliced-work` |
 | [AI workflow](skills/ai/README.md) | --rtk outputs, QCM questions, clarification, ideation, a run without interruption, a clean pause resumed at the next continue, session context, the user's voice, handover, onboarding, presentations, full git permission, linked sessions, session progress logged to Discord / files / APIs | `ask-at-end`, `clarify`, `continue-work`, `export`, `full-permission`, `ideation`, `interactive-questions`, `onboard`, `pause`, `presentation`, `rtk`, `session-link`, `session-log`, `setup-context`, `write-like-me` |
 | [Code mode](skills/code-mode/README.md) | The local MCP servers driven by one Python script whose printed output alone enters the context (-50 to -90% tokens on batches, chains and big results), MCP tools and a command line on one engine, background jobs, usage limits and partial failures resumed, recipes, profiles for Blender and Roblox Studio, hooks, an optional sandbox | `code-mode` |
 <!-- /generated:categories -->

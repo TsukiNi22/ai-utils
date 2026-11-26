@@ -1,3 +1,5 @@
 interactive-questions
 clarify
 ideation
+memory-guard
+sliced-work

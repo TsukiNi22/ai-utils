@@ -26,6 +26,8 @@ presentation
 full-permission
 rtk
 computer-clean
+memory-guard
+sliced-work
 multilingual-project
 multilingual-website
 color-modes-project

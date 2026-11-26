@@ -98,7 +98,7 @@
     },
     {
       "name": "system-skills",
-      "description": "System: free space on the computer and in the data of Claude Code / claude-cluster, chosen in a QCM (skills: computer-clean)",
+      "description": "System: free space on the computer and in the data of Claude Code / claude-cluster, chosen in a QCM, heavy jobs kept inside a memory budget, long jobs in resumable slices merged at the end (skills: computer-clean, memory-guard, sliced-work)",
       "source": "./",
       "strict": false,
       "skills": [

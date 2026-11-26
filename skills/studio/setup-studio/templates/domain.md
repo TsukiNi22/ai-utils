@@ -30,8 +30,8 @@ a tool, run `/setup-studio` again (refresh): the notes at the end are kept. Icon
   else its command line headless, else prepare the files and open the GUI for the user with the exact steps.
 - Inputs are never overwritten: outputs go to new files (next to the input, or where the user says) and the command
   used is given.
-- Long renders, generations and simulations: say the expected time and size first, run them in the background, one
-  heavy GPU job at a time ({{GPU}}).
+- Long renders, generations and simulations: in resumable slices (`sliced-work`), memory limited (`memory-guard`);
+  say the expected time and size first, run them in the background, one heavy GPU job at a time ({{GPU}}).
 - A tool or model marked *commercial: no* is never used for work that is sold, monetized or made for a client;
   *conditions*: say the condition before using it.
 - An asset, sound, model, font or AI model taken from outside: note its source and license (`CREDITS.md` of the

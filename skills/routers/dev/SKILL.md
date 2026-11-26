@@ -86,6 +86,8 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | protocol of a networking project (frames, handshake, codes, commands, storage) | `protocol-doc` | `doc` |
 | any other HTML page, palette / color / font | `html-style` | `doc` |
 | free space, deep clean: caches, old builds, downloads, duplicates, Docker, flatpak, dnf updates, old kernels, Claude Code / claude-cluster leftovers | `computer-clean` | - |
+| careful with the RAM / swap / memory, a heavy build / render / model on this machine, a session or job killed (OOM) | `memory-guard` | - |
+| a job of several minutes (render, generation, encode, batch) resumable after a crash, "en slicing", "par morceaux" | `sliced-work` (uses `memory-guard`) | - |
 | set up / scan / refresh the creative tools (audio, image, video, 3D, simulation / VFX / rendering, their MCP servers) as skills | `setup-studio` (then `/studio` routes the creative requests) | - |
 | a creative request: sound, music, voice, image, video, 3D model, simulation, render | the `studio` router when it was generated (`/studio`), else propose `setup-studio` | - |
 | commit the current diff locally ("fais le commit") | `git-commit` | `git` |
