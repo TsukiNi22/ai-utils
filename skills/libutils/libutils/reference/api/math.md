@@ -1,6 +1,29 @@
 # libutils `math`
 
-Generated from libutils `v4.3.1` (commit `7913070`, 2026-10-22) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v5.0.0` (commit `6aac89f`, 2026-11-27) by `scripts/gen_api.py`, do not edit by hand.
+
+## `utils/math/CApi.h`
+
+C API of utils::math: the math types (utils::math::Type = double), geometry & trigonometry (C & C++ compatible) The structures are given by value (same fields as the utils::math types), the math functions can't fail
+
+```c
+// global
+typedef double utils_math_type_t; // utils::math::Type: coord, angle, direction, ...
+typedef uint64_t utils_math_utype_t; // utils::math::UType: unsigned coord, angle, direction, ...
+typedef utils_math_type_t utils_math_angle_t; // utils::math::Angle: generaly in deg
+typedef struct utils_math_coord2d { utils_math_type_t x; utils_math_type_t y; };
+typedef struct utils_math_ucoord2d { utils_math_utype_t x; utils_math_utype_t y; };
+typedef struct utils_math_coord { utils_math_type_t x; utils_math_type_t y; utils_math_type_t z; };
+typedef struct utils_math_ucoord { utils_math_utype_t x; utils_math_utype_t y; utils_math_utype_t z; };
+typedef utils_math_coord_t utils_math_direction_t; // utils::math::Direction: generaly normalized
+typedef struct utils_math_chunk { int32_t x; int32_t y; int32_t z; };
+typedef struct utils_math_cframe { utils_math_coord_t position; utils_math_direction_t orientation; utils_math_direction_t look; };
+utils_math_type_t utils_math_deg_to_rad(utils_math_angle_t deg);
+utils_math_angle_t utils_math_rad_to_deg(utils_math_type_t rad);
+utils_math_direction_t utils_math_to_look(utils_math_direction_t orientation); // orientation in deg -> look vector normalized
+utils_math_coord2d_t utils_math_rotate_point_2d(utils_math_coord2d_t origin, utils_math_coord2d_t point, utils_math_angle_t angle, bool rad);
+utils_math_coord_t utils_math_rotate_point_3d(utils_math_coord_t origin, utils_math_coord_t point, utils_math_direction_t orientation, bool rad);
+```
 
 ## `utils/math/MathType.hpp`
 

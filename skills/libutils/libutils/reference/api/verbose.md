@@ -1,6 +1,25 @@
 # libutils `verbose`
 
-Generated from libutils `v4.3.1` (commit `7913070`, 2026-10-22) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v5.0.0` (commit `6aac89f`, 2026-11-27) by `scripts/gen_api.py`, do not edit by hand.
+
+## `utils/verbose/CApi.h`
+
+C API of utils::verbose (level of the global verbose, printf style logs on the locked output) (C & C++ compatible) The logs go through std::cout like the c++ macros (onVerbose, ...), so the C & C++ logs stay in order
+
+```c
+// global
+typedef int (*utils_verbose_fn_t)(void* data); // UTILS_OK / UTILS_KO (info: utils_fail / utils_exception_set)
+typedef enum utils_verbose { C_API_VERBOSE_NONE = 0, C_API_VERBOSE_BASIC, C_API_VERBOSE_ADVANCED, C_API_VERBOSE_DEBUG };
+void utils_verbose_set(utils_verbose_t level);
+utils_verbose_t utils_verbose_get(void);
+bool utils_verbose_is(utils_verbose_t level); // true when the level is displayed (level <= the global one)
+int utils_verbose_log(utils_verbose_t level, const char* fmt, ...);
+int utils_verbose_vlog(utils_verbose_t level, const char* fmt, va_list args);
+int utils_verbose_log_to(FILE* output, utils_verbose_t level, const char* fmt, ...);
+int utils_verbose_vlog_to(FILE* output, utils_verbose_t level, const char* fmt, va_list args);
+int utils_verbose_locked(utils_verbose_fn_t fn, void* data);
+int utils_verbose_on(utils_verbose_t level, utils_verbose_fn_t fn, void* data); // only when the level is displayed (like onVerboseFn), UTILS_OK when not run
+```
 
 ## `utils/verbose/Verbose.hpp`
 

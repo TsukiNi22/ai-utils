@@ -48,7 +48,15 @@ Methods (`IException`): `formated()`, `what()` (code message), `info()`, `getTyp
 (always an `InternalCode`, an external code is cast), `isNone()`, `isFatal()`, `loc()`.
 
 `Type` (bit flags, `|`, `&`, `^`, `~` defined): `None = 0b0001`, `Fatal = 0b0010`, `Error = 0b0100`, `Warning = 0b1000`.
-`OK` (`0`) / `KO` (`-1`) are defined by `ExceptionDefine.hpp` (if not already defined).
+`OK` (`0`) / `KO` (`-1`): `utils/exception/Common.hpp` since v5.0.0 (C and C++), defined only when free (a warning when
+already defined with another value); `UTILS_OK` / `UTILS_KO` are always defined (used by libutils and its C API).
+
+**C API** (v5.0.0, `utils/exception/CApi.h`, `_Exception` in `<utils/utils.h>`): no exception crosses into C. A call of
+the C API that fails returns `UTILS_KO` / `NULL` / `0` and fills the thread local `utils_exception`
+(`utils_exception_status_t`, read like `errno`: type, code, what, info, file / line / function, origin
+`C_API_EXCEPTION_ORIGIN_*`; `C_API_OTHER_EXCEPTION_CODE` for a non-libutils exception); `utils_exception_format()` (or
+`_r` into a buffer) gives the `formated()` text, `utils_exception_clear()` resets it. A C callback reports an error with
+`return utils_fail(code, "info");` (= `UTILS_KO`, the location filled), rethrown on the C++ side with its info.
 
 `formated()` output (colored, file path as a terminal hyperlink, module name when thrown from another binary/.so):
 ```
@@ -101,7 +109,9 @@ catch (const std::exception& e) {throw utils::exception::ErrorException(utils::e
 ## 3. Add exception codes to a project (external codes)
 Internal codes = libutils ones (`InternalCode`), external = the project ones (`ExternalCode`).
 
-Checklist (files to copy are in `templates/`, identical to `cpp_project_template` / `context-forge`):
+Checklist (files to copy are in `templates/`, from `cpp_project_template` / `context-forge`; the generator checks the
+code names and the restrictions too). cpp_project_template writes its header in `include/<name>/exception/`
+(`GENERATED_EXCEPTION_DIR`: a path of its own once a library is installed) instead of `include/exception/`:
 1. **Scripts**: copy `templates/cmake/scripts/{const.py,generate_exception_header.py,requirements.txt}` to
    `cmake/scripts/`. `const.py` holds the paths (`CONFIG_EXCEPTION = "cmake/config/exceptions/"`,
    `GENERATED_EXCEPTION_HEADER = "include/exception/generated_external_exception_header.hpp"`) and the

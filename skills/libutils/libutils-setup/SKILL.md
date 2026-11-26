@@ -1,6 +1,6 @@
 ---
 name: libutils-setup
-description: Set up libutils in the current C++ project - find_package(utils X.Y.Z) with the installed version, utils::utils on every target, and optionally the custom exception codes (JSON config, generator scripts, CMake generation block, include/exception, .gitignore) - in the user's CMake layout, installing libutils first when it is missing; libutils v4 (no v3 names), its Windows build too (MinGW-w64). Use whenever the user wants to add/use libutils in an existing project, link it in the CMake, or set up custom libutils exceptions in a repository.
+description: Set up libutils in the current C++ project - find_package(utils X.Y.Z) with the installed version, utils::utils on every target, and optionally the custom exception codes (JSON config, generator scripts, CMake generation block, include/exception, .gitignore) - in the user's CMake layout, installing libutils first when it is missing; an existing requirement raised to a new major (libutils 5.x refuses find_package(utils 4.x)); libutils v5 (its C API too, no v3 names), its Windows build too (MinGW-w64). Use whenever the user wants to add/use libutils in an existing project, link it in the CMake, or set up custom libutils exceptions in a repository.
 metadata:
   summary: 'Adds libutils to the current project: `find_package`/`utils::utils` in the CMake and optionally the custom exceptions (JSON, scripts, generation block), installing libutils first if needed.'
 ---
@@ -32,7 +32,9 @@ python3 SKILL_DIR/scripts/setup_project.py <project root> [--exceptions] [--targ
 Run it with `--dry-run` first when the CMake isn't in the user's layout, show the diff, then for real.
 Idempotent (a second run changes nothing). In the `cmake-style` sections (created when missing):
 - `# Requirement`: `find_package(utils <installed version> CONFIG REQUIRED) # Check utils dependencies existance`
-  (+ `find_package(Python3 REQUIRED)` with `--exceptions`), before the ccache block;
+  (+ `find_package(Python3 REQUIRED)` with `--exceptions`), before the ccache block; an existing one (or the
+  `set(LIBUTILS_VERSION X.Y.Z)` it reads, cpp_project_template) is raised to `--version`, never lowered, and without
+  `--version` only when the installed major is newer (libutils accepts its own major only: 4.x -> 5.0.0);
 - `# Special Targets` (`--exceptions`): the generation of `include/exception/generated_external_exception_header.hpp`
   from `cmake/config/exceptions/*.json`;
 - `# Dependencies`: `utils::utils` appended to the existing `target_link_libraries(<target> PRIVATE ...)` or a new line,
@@ -50,10 +52,15 @@ Idempotent (a second run changes nothing). In the `cmake-style` sections (create
 - `Debug`/`Asan` builds need the `libutils-db[-pre]` / `libutils-as[-pre]` packages (libutils-install `--variants`).
 - v4.0.0 removed every v3 compatibility name (`isloaded`, `auto_cast`, `setStyle`, `utils::network::socket::*`...):
   a project moving to `find_package(utils 4.0.0)` replaces them (`xstyle --rtk --fix` lists them: `LU-*` rules).
+- v5.0.0 (`setup_project.py <root> --version 5.0.0`): the C++ API is the same, apart from the migrations of the
+  `libutils` skill (`SharedMemory(std::uint16_t)`, `copy` / `copy_r` of the C API); `OK` / `KO` come from
+  `utils/exception/Common.hpp` and are defined only when free (`UTILS_OK` / `UTILS_KO` always).
+- C code calling libutils (C API, v5.0.0): `project(<name> LANGUAGES C CXX)` (the link goes through the C++ linker),
+  `utils::utils` on the C target as well, `#include <utils/utils.h>` with the section defines (`libutils` skill).
 - **For Windows too** (libutils v4.1.0: packages `mingw64-libutils*`): `libutils-install` `windows` installs them in
   the MinGW sysroot, then the project builds with the toolchain of cpp_project_template
   (`-DCMAKE_TOOLCHAIN_FILE=cmake/toolchain/mingw-w64.cmake`), `mingw64-cmake -S . -B build-windows` (Fedora) or another
-  MinGW toolchain (`find_package(utils 4.1.0)` for the `mingw64-libutils*` packages / `utils::utils`, which also links
+  MinGW toolchain (`find_package(utils)` of the same major as the `mingw64-libutils*` packages / `utils::utils`, which also links
   `ws2_32`; `Debug`: `mingw64-libutils-db`); a source build into a prefix instead (no package): add
   `-DCMAKE_FIND_ROOT_PATH=<prefix>`. The code goes through `utils::platform::` for the system calls, `<windows.h>`
   before `<utils/utils.hpp>`, `utils::iomanip::enable_ansi()` once in `main` (details: `libutils` skill, Platforms).

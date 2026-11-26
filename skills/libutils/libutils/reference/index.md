@@ -1,13 +1,15 @@
 # libutils API index
 
-Generated from libutils `v4.3.1` (commit `7913070`, 2026-10-22) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v5.0.0` (commit `6aac89f`, 2026-11-27) by `scripts/gen_api.py`, do not edit by hand.
 
-Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Details of a section: `api/<section>.md`.
+Header path under `include/` (a project includes `<utils/utils.hpp>`, or `<utils/utils.h>` for the C API `*.h`, with the section defines). Details of a section: `api/<section>.md`.
 
 ## algorithms
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
+| `utils/algorithms/CApi.h` | `-` | `utils_c2dmp`, `utils_c2dmp_default` | C API of the algorithms of libutils: c2dmp-hsm (string similarity) & s.o.s (steganography) (C & C++ compatible) Wrapper of the synced sources (c2dmp-hsm/, sos/), their template parameters given at runtime Every function that can fail returns UTILS_OK / UTILS_KO (or -1 / 0), details in utils_exception |
+| `utils/algorithms/CApi.hpp` | `-` | - | Macros of the C API of the algorithms (definitions of the fixed types, expanded in the .cpp) |
 | `utils/algorithms/c2dmp-hsm/algorithm/foptimized.hpp` | `utils::algorithms::c2dmp` | `c2dmp_foptimized`, `makeLookupTable_`, `normalize_` | Algorithm used to determine the distance between 2 words  n = a.size() m = b.size() k = sizeof(UIntT) → can be 1, 2, 4 or 8  Time: best  → O(m + n) moy   → O(m + n) worst → O(m + n)  Memory: best  → O(1) → const (637) moy   → O(1) → const (271 * k + 366) worst → O(1) → const (2534) |
 | `utils/algorithms/c2dmp-hsm/algorithm/fsimplified.hpp` | `utils::algorithms::c2dmp` | `c2dmp_fsimplified`, `makeLookupTable_`, `normalize_` | Algorithm used to determine the distance between 2 words  n = a.size() m = b.size() k = sizeof(UIntT) → can be 1, 2, 4 or 8  Time: best  → O(m + n) moy   → O(m + n) worst → O(m + n)  Memory: best  → O(1) → const (637) moy   → O(1) → const (271 * k + 366) worst → O(1) → const (2534) |
 | `utils/algorithms/c2dmp-hsm/algorithm/optimized.hpp` | `utils::algorithms::c2dmp` | `c2dmp_optimized`, `makeLookupTable_`, `normalize_` | Algorithm used to determine the distance between 2 words  n = a.size() m = b.size() k = sizeof(UIntT) → can be 1, 2, 4 or 8  Time: best  → O(m + min(n, m)) moy   → O(m + min(n, m)) worst → O(m + min(n, m))  Memory: best  → O(1) → const (637) moy   → O(1) → const (271 * k + 366) worst → O(1) → const (2534) |
@@ -29,6 +31,8 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 |---|---|---|---|
 | `utils/arguments/ArgParser.hpp` | `utils::arguments` | `ArgParser`, `defaultBoolParsingHook`, `defaultDirectoryParsingHook`, `defaultDoubleParsingHook`, `defaultFileParsingHook`, `defaultHelpHook`, `defaultInt32ParsingHook`, `defaultSizetParsingHook`, `defaultTrueParsingHook` ... | Declaration of the ArgParser class for arguments handling |
 | `utils/arguments/ArgParserType.hpp` | `utils::arguments` | `ParsedUsageFull`, `ParsedUsage`, `Usage`, `Option`, `Flag` | Declaration of the ArgParser type for void & non void function |
+| `utils/arguments/CApi.h` | `-` | `utils_argparser_check_bool`, `utils_argparser_check_directory`, `utils_argparser_check_double`, `utils_argparser_check_file`, `utils_argparser_check_int32`, `utils_argparser_check_sizet`, `utils_argparser_check_true`, `utils_argparser_check_writable` ... | C API of utils::arguments: ArgParser (usages, options, flags, parsing) & Settings (typed settings) (C & C++ compatible) Every function that can fail returns UTILS_OK / UTILS_KO (or NULL / 0), details in utils_exception Every check callback returns UTILS_OK (valid) or UTILS_KO (its message: the info of utils_fail / utils_exception_set) |
+| `utils/arguments/CApi.hpp` | `-` | `utils_argparser`, `utils_argparser_result`, `utils_settings`, `path_c` | Handles of the C API of utils::arguments (usable in c++ to get the object) |
 | `utils/arguments/Setting.hpp` | `utils::arguments` | `Setting`, `demangle` | Declaration of the Setting class used in Settings |
 | `utils/arguments/Settings.hpp` | `utils::arguments` | `SettingsHash`, `Settings` | Declaration of the Settings class used for settings handling |
 | `utils/arguments/SettingsDefine.hpp` | `utils::arguments` | `CastType` | Enum & Include handling used in settings handling |
@@ -37,16 +41,27 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
-| `utils/attribute/Attribute.hpp` | `std` | - | Include the right file from the c++ version used or selected |
-| `utils/attribute/c++14.hpp` | `-` | - | Different attribute used for optimisation & other thing Version for c++14 and above |
-| `utils/attribute/c++17.hpp` | `-` | - | Different attribute used for optimisation & other thing Version for c++17 and above |
+| `utils/attribute/Attribute.hpp` | `-` | - | Redirection for the c or c++ attribute |
+| `utils/attribute/c++.hpp` | `-` | - | Include the right file from the c++ version used or selected |
+| `utils/attribute/c++11.hpp` | `-` | - | Different attribute used for optimisation & other thing Version for c++11 and above. Same macros as `utils/attribute/c++20.hpp` for another standard. |
+| `utils/attribute/c++14.hpp` | `-` | - | Different attribute used for optimisation & other thing Version for c++14 and above. Same macros as `utils/attribute/c++20.hpp` for another standard. |
+| `utils/attribute/c++17.hpp` | `-` | - | Different attribute used for optimisation & other thing Version for c++17 and above. Same macros as `utils/attribute/c++20.hpp` for another standard. |
 | `utils/attribute/c++20.hpp` | `-` | - | Different attribute used for optimisation & other thing Version for c++20 and above |
-| `utils/attribute/fallback.hpp` | `-` | - | Different attribute used for optimisation & other thing Fallback if the version used is inferior to c++14 |
+| `utils/attribute/c++23.hpp` | `-` | - | Different attribute used for optimisation & other thing Version for c++23 and above. Same macros as `utils/attribute/c++20.hpp` for another standard. |
+| `utils/attribute/c.h` | `-` | - | Include the right file from the c version used or selected (same macros as c++.hpp) Only included by Attribute.hpp in c (c++: c++.hpp) |
+| `utils/attribute/c11.h` | `-` | - | Different attribute used for optimisation & other thing Version for c11 and c17 (same macros as c++14.hpp). Same macros as `utils/attribute/c++20.hpp` for another standard. |
+| `utils/attribute/c23.h` | `-` | - | Different attribute used for optimisation & other thing Version for c23 and above (same macros as c++20.hpp). Same macros as `utils/attribute/c++20.hpp` for another standard. |
+| `utils/attribute/c99.h` | `-` | - | Different attribute used for optimisation & other thing Version for c99 (or gnu89) with a GNU compiler (same macros as c++11.hpp). Same macros as `utils/attribute/c++20.hpp` for another standard. |
+| `utils/attribute/common.h` | `-` | `enum` | Keywords & values that are not attributes, common to every c version (same as common.hpp) (thread_local, restrict, alignas, hardware interference size) |
+| `utils/attribute/common.hpp` | `std` | - | Keywords & values that are not attributes, common to every c++ version (thread_local, restrict, alignas, hardware interference size) |
+| `utils/attribute/fallback.hpp` | `-` | - | Different attribute used for optimisation & other thing Fallback without a GNU compiler or with a too old version (c & c++). Same macros as `utils/attribute/c++20.hpp` for another standard. |
 
 ## cli
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
+| `utils/cli/CApi.h` | `-` | `utils_cli_add_flags`, `utils_cli_clear_commands`, `utils_cli_cli_middlewares_add_after`, `utils_cli_cli_middlewares_add_before`, `utils_cli_cli_middlewares_clear`, `utils_cli_command_middlewares_add_after`, `utils_cli_command_middlewares_add_before`, `utils_cli_command_middlewares_clear` ... | C API of utils::cli::Cli (C & C++ compatible) Every function that can fail returns UTILS_OK / UTILS_KO (or NULL / 0), details in utils_exception (utils_exception.exception: failure of the last call) Every callback returns UTILS_OK, UTILS_KO (info: utils_fail / utils_exception_set) or C_API_CLI_EXIT |
+| `utils/cli/CApi.hpp` | `-` | `utils_cli` | C++ side of the C API of utils::cli::Cli (handle & checks) |
 | `utils/cli/Cli.hpp` | `utils::cli` | `Cli`, `defaultGetCHook`, `defaultParserHook`, `defaultPromptHook` | Cli class used for a customizable command line interface |
 | `utils/cli/Flags.hpp` | `utils::cli`, `utils::cli::flags` | `Flag` | Definition of the flags used to customize the cli |
 
@@ -61,6 +76,8 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
+| `utils/encapsulation/CApi.h` | `-` | `utils_dup_clear`, `utils_dup_close`, `utils_dup_close_clone`, `utils_dup_close_origin`, `utils_dup_create`, `utils_dup_destroy`, `utils_dup_get_clone`, `utils_dup_get_origin` ... | C API of utils::encapsulation: Dup, Pipe, Poll, Process, SharedObject & SharedMemory (C & C++ compatible) Every function that can fail returns UTILS_OK / UTILS_KO (or NULL / 0 / -1), details in utils_exception |
+| `utils/encapsulation/CApi.hpp` | `-` | `utils_dup`, `utils_pipe`, `utils_poll`, `utils_process`, `utils_shared_object`, `utils_shm`, `utils_shm_messages` | Handles of the C API of utils::encapsulation (usable in c++ to get the object) |
 | `utils/encapsulation/Dup.hpp` | `utils::encapsulation` | `Dup` | Basic encapsulation for pipe |
 | `utils/encapsulation/Pipe.hpp` | `utils::encapsulation` | `Pipe` | Basic encapsulation for pipe |
 | `utils/encapsulation/Poll.hpp` | `utils::encapsulation` | `Poll` | Encapsulation of the epoll |
@@ -72,8 +89,11 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
-| `utils/exception/AException.hpp` | `utils::exception` | `AException` | Absract for the cutomized exception handling |
-| `utils/exception/ExceptionDefine.hpp` | `-` | - | Definition of the error code&message |
+| `utils/exception/AException.hpp` | `utils::exception` | `AException`, `format` | Absract for the cutomized exception handling |
+| `utils/exception/CApi.h` | `-` | `enum`, `enum`, `utils_exception_clear`, `utils_exception_format`, `utils_exception_format_r`, `utils_exception_set_at` | C side of the exception status filled by the C API (C & C++ compatible) |
+| `utils/exception/CApi.hpp` | `utils::exception::c_api` | `utils_handle`, `check_callback`, `clear_status`, `guard`, `guard_fallback`, `handle_base`, `not_null`, `not_null_ref`, `reset_status` ... | Handler used for the C API on c++ exception |
+| `utils/exception/Common.hpp` | `-` | - | Defines common to the c++ exceptions and the C API (C & C++ compatible) |
+| `utils/exception/ExceptionDefine.hpp` | `utils::exception` | `Type`, `operator&`, `operator&=`, `operator^`, `operator^=`, `operator|`, `operator|=`, `operator~` | Definition of the error code&message |
 | `utils/exception/IException.hpp` | `utils::exception` | `IException` | Interface for the cutomized exception handling |
 | `utils/exception/basic/ErrorException.hpp` | `utils::exception` | `ErrorException` | Exception class used for Error |
 | `utils/exception/basic/NoneException.hpp` | `utils::exception` | `NoneException` | Exception class used for None (like in simple exit) |
@@ -86,9 +106,13 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
 | `utils/manip/iomanip/ANSI.hpp` | `utils::iomanip` | `MouseButton`, `MouseEvent`, `AdvancedMouseEvent`, `back_color_id`, `back_color_rgb`, `bar`, `bar_reset`, `color`, `color_id`, `color_rgb`, `column` ... | Definition of ANSI escape sequences |
+| `utils/manip/iomanip/CApi.h` | `-` | `utils_iomanip_back_color`, `utils_iomanip_back_color_id`, `utils_iomanip_back_color_id_r`, `utils_iomanip_back_color_r`, `utils_iomanip_back_color_rgb`, `utils_iomanip_back_color_rgb_r`, `utils_iomanip_bar`, `utils_iomanip_bar_reset` ... | C API of utils::iomanip: the ANSI sequences as strings, the reports of the terminal (C & C++ compatible) Sequences without argument: static strings (always valid), with arguments: valid until the next call of the same function in the thread (NULL on error), _r: copied in the buffer of the user |
+| `utils/manip/iomanip/CApi.hpp` | `-` | - | Macros of the C API of utils::iomanip (expanded in the .cpp) |
 | `utils/manip/iomanip/Char.hpp` | `utils::iomanip` | `Char` | Definition of some special char |
 | `utils/manip/iomanip/Color.hpp` | `utils::iomanip` | `Color`, `BackColor` | Definition of color used in ANSI escape sequences |
 | `utils/manip/iomanip/Style.hpp` | `utils::iomanip` | `Style`, `ResetStyle` | Define of the different style used in ANSI |
+| `utils/manip/smanip/CApi.h` | `-` | `utils_codec_create`, `utils_codec_create_base64`, `utils_codec_decode`, `utils_codec_destroy`, `utils_codec_encode`, `utils_eetp_content_add_data`, `utils_eetp_content_clear_data`, `utils_eetp_content_create` ... | C API of utils::smanip: byte strings, format, codecs & EETP parser (C & C++ compatible) Every function that can fail returns UTILS_OK / UTILS_KO (or NULL / 0), details in utils_exception Every callback returns UTILS_OK or UTILS_KO (info: utils_fail / utils_exception_set) |
+| `utils/manip/smanip/CApi.hpp` | `utils::smanip::c_api` | `utils_string`, `utils_codec`, `utils_eetp_content`, `utils_eetp_parser`, `bytes`, `copy`, `copy_r` | String tools of the C API (copy in the fixed buffers of the status & in the buffers of the user) & handles of the C API of smanip |
 | `utils/manip/smanip/FixedString.hpp` | `utils::smanip` | `FixedString`, `FixedString` | Fixed string used in template definition |
 | `utils/manip/smanip/codec/Base64Codec.hpp` | `utils::smanip::codec` | `Base64Codec` | Definition of the base 64 codec |
 | `utils/manip/smanip/codec/Codec.hpp` | `-` | - | Include for all the different codec |
@@ -103,6 +127,7 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
+| `utils/math/CApi.h` | `-` | `utils_math_deg_to_rad`, `utils_math_rad_to_deg`, `utils_math_rotate_point_2d`, `utils_math_rotate_point_3d`, `utils_math_to_look` | C API of utils::math: the math types (utils::math::Type = double), geometry & trigonometry (C & C++ compatible) The structures are given by value (same fields as the utils::math types), the math functions can't fail |
 | `utils/math/MathType.hpp` | `utils::math` | `CFrame` | Type definition used in math computing |
 | `utils/math/geometry/Angle.hpp` | `utils::math::geometry` | `to_look` | Prototype for angle computing |
 | `utils/math/geometry/Point.hpp` | `utils::math::geometry` | `rotate_point_2D`, `rotate_point_3D` | Prototype for point computing |
@@ -112,6 +137,8 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
+| `utils/network/CApi.h` | `-` | `utils_client_create`, `utils_client_destroy`, `utils_client_flush`, `utils_client_get_status`, `utils_client_join`, `utils_client_kill`, `utils_client_listen`, `utils_client_send` ... | C API of utils::network: sockets (TCP or of the C side), Client & Server (C & C++ compatible) Every function that can fail returns UTILS_OK / UTILS_KO (or NULL / 0 / -1), details in utils_exception Every callback returns what is asked or -1 / UTILS_KO (info: utils_fail / utils_exception_set) |
+| `utils/network/CApi.hpp` | `-` | `utils_socket`, `utils_client`, `utils_server`, `utils_payloads`, `utils_network_messages` | Handles of the C API of utils::network (usable in c++ to get the object) |
 | `utils/network/Client.hpp` | `utils::network` | `Client` | Definition of the client class for custom network |
 | `utils/network/NetworkDefine.hpp` | `utils::network` | `Status` | Different definition of values for socket definition |
 | `utils/network/NetworkType.hpp` | `utils::network` | `Address` |  |
@@ -125,17 +152,21 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
-| `utils/platform/Dlfcn.hpp` | `utils::platform` | `Dl_info`, `dladdr`, `dlclose`, `dlerror`, `dlopen`, `dlsym` | Dynamic loading calls of <dlfcn.h> for Unix & Windows (same names, same contract) Unix: the system call, Windows: LoadLibrary / GetProcAddress / FreeLibrary |
-| `utils/platform/Epoll.hpp` | `utils::platform` | `epoll_data`, `epoll_event`, `epoll_create1`, `epoll_ctl`, `epoll_wait` | epoll for Unix & Windows (same names, same behavior) Unix: <sys/epoll.h>, Windows: emulation over WSAPoll (sockets only) |
+| `utils/platform/CApi.h` | `-` | `utils_platform_accept`, `utils_platform_bind`, `utils_platform_close`, `utils_platform_connect`, `utils_platform_dladdr`, `utils_platform_dlclose`, `utils_platform_dlerror`, `utils_platform_dlopen` ... | C API of utils::platform: the POSIX calls of libutils for Unix & Windows (C & C++ compatible) Same contract as POSIX (-1 & errno, NULL & dlerror, EAI_* code), utils_exception is never used Unix: the POSIX structures need the POSIX features (_POSIX_C_SOURCE >= 200112L, default of gnu11 / gnu23) |
+| `utils/platform/Dlfcn.hpp` | `utils::platform` | `dladdr`, `dlclose`, `dlerror`, `dlopen`, `dlsym` | Dynamic loading calls of <dlfcn.h> for Unix & Windows (same names, same contract) Unix: the system call, Windows: LoadLibrary / GetProcAddress / FreeLibrary |
+| `utils/platform/Epoll.hpp` | `utils::platform` | `epoll_create1`, `epoll_ctl`, `epoll_wait` | epoll for Unix & Windows (same names, same behavior) Unix: <sys/epoll.h>, Windows: emulation over WSAPoll (sockets only) |
 | `utils/platform/Platform.hpp` | `-` | - | Detection of the target platform (Unix or Windows) UTILS_UNIX / UTILS_WINDOWS, UTILS_PLATFORM |
 | `utils/platform/Socket.hpp` | `utils::platform` | `accept`, `bind`, `connect`, `freeaddrinfo`, `gai_strerror`, `gai_strerrorA`, `getaddrinfo`, `getpeername` ... | BSD socket calls for Unix & Windows (same names, same contract: -1 & errno) Unix: the system call, Windows: Winsock 2 (started on the first use, errors translated in errno) |
-| `utils/platform/Termios.hpp` | `utils::platform` | `termios`, `tcgetattr`, `tcsetattr` | Terminal calls of <termios.h> for Unix & Windows (same names, same contract: -1 & errno) Unix: the system call, Windows: console mode (ICANON = line input, ECHO = echo, ISIG = ctrl+c) |
+| `utils/platform/Termios.hpp` | `utils::platform` | `tcgetattr`, `tcsetattr` | Terminal calls of <termios.h> for Unix & Windows (same names, same contract: -1 & errno) Unix: the system call, Windows: console mode (ICANON = line input, ECHO = echo, ISIG = ctrl+c) |
+| `utils/platform/Types.h` | `-` | `epoll_event`, `termios` | Windows versions of the POSIX defines, structures & types used by utils::platform (C & C++ compatible) Same names, values & layout as Linux; nothing on Unix (the system headers give them) |
 | `utils/platform/Unistd.hpp` | `utils::platform` | `close`, `dup`, `dup2`, `getpid`, `isatty`, `pipe`, `poll`, `read` ... | POSIX calls of <unistd.h> & co for Unix & Windows (same names, same contract: -1 & errno) Unix: the system call, Windows: CRT / Win32 implementation |
 
 ## pool
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
+| `utils/pool/CApi.h` | `-` | `utils_cluster_apply`, `utils_cluster_create`, `utils_cluster_destroy`, `utils_cluster_kill`, `utils_cluster_kill_n`, `utils_cluster_size`, `utils_cluster_spawn`, `utils_middlewares_add_after` ... | C API of utils::pool: clusters & middlewares (C & C++ compatible) The templates are given for the fixed types of type/CApiTypes.h & as bytes (generic) Every function that can fail returns UTILS_OK / UTILS_KO (or NULL / 0), details in utils_exception Every callback returns UTILS_OK or UTILS_KO (info: utils_fail / utils_exception_set) |
+| `utils/pool/CApi.hpp` | `-` | `utils_cluster`, `utils_middlewares`, `utils_middlewares_bytes` | Handles of the C API of utils::pool (usable in c++ to get the object) |
 | `utils/pool/Cluster.hpp` | `utils::pool` | `Cluster` | Cluster class definition |
 | `utils/pool/middleware/Middlewares.hpp` | `-` | - | Global middlewares include |
 | `utils/pool/middleware/MiddlewaresType.hpp` | `utils::pool` | `MiddlewareType`, `MiddlewareType` | Declaration of the Middleware type for void & non void function |
@@ -148,6 +179,8 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
+| `utils/security/CApi.h` | `-` | `utils_aes_data_create`, `utils_aes_data_destroy`, `utils_aes_data_get_iv`, `utils_aes_data_get_key`, `utils_aes_data_get_tag`, `utils_aes_data_set_iv`, `utils_aes_data_set_key`, `utils_aes_data_set_tag` ... | C API of utils::security: AES & RSA keys (encryption) and the observers of the C side (memory leak report) (C & C++ compatible) Every function that can fail returns UTILS_OK / UTILS_KO (or NULL / 0), details in utils_exception |
+| `utils/security/CApi.hpp` | `-` | `utils_aes_key`, `utils_aes_data`, `utils_rsa_key`, `utils_observer` | Handles of the C API of utils::security (usable in c++ to get the object) |
 | `utils/security/encryption/AESKey.hpp` | `utils::security::encryption` | `KeyAES`, `AESKey` | Declaration of the key used for the AES |
 | `utils/security/encryption/AKey.hpp` | `utils::security::encryption` | `AKey`, `key_to_string`, `string_to_key` | Declaration of the abstract used for different key (RSA, AES, ...) |
 | `utils/security/encryption/CommonRSAKey.hpp` | `utils::security::encryption` | `CommonRSAKey` | Declaration of the key used for the common RSA |
@@ -167,6 +200,8 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
+| `utils/system/CApi.h` | `-` | `utils_gpu_allocate`, `utils_gpu_create`, `utils_gpu_create_custom`, `utils_gpu_destroy`, `utils_gpu_fetch`, `utils_gpu_free`, `utils_gpu_get_memory`, `utils_gpu_get_mode` ... | C API of utils::system: gpu handlers, hybrid memories (gpu / ram), id handlers, load balancer & scheduler (C & C++ compatible) The templates are given for the fixed types of type/CApiTypes.h & as bytes (generic) Every function that can fail returns UTILS_OK / UTILS_KO (or NULL / 0), details in utils_exception |
+| `utils/system/CApi.hpp` | `-` | `utils_gpu`, `utils_hybrid_memory`, `utils_load_balancer`, `utils_scheduler` | Handles of the C API of utils::system (usable in c++ to get the object) |
 | `utils/system/HybridMemory.hpp` | `utils::system` | `HybridMemory`, `make_gpu`, `make_raw_gpu`, `make_shared_gpu`, `make_unique_gpu` | Memory loaded on the gpu when available, else in the ram |
 | `utils/system/HybridMemoryDefine.hpp` | `utils::system` | `MemoryMode` | Modes of the HybridMemory (gpu / ram) |
 | `utils/system/IdHandler.hpp` | `utils::system` | `IdHandler` | Handle id allocation |
@@ -183,6 +218,10 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
+| `utils/type/CApi.h` | `-` | `utils_blt_add`, `utils_blt_clear`, `utils_blt_create`, `utils_blt_destroy`, `utils_blt_get`, `utils_blt_remove`, `utils_blt_set`, `utils_freezable_freeze` ... | C API of utils::type: Freezable / Worker of any handle, vectors, matrices & bidirectional lookup tables (C & C++ compatible) The templates are given for the fixed types of type/CApiTypes.h (suffix: i8 ... u64, size, f32, f64, f128, bool, char, str) & as bytes (void* + size) Every function that can fail returns UTILS_OK / UTILS_KO (or NULL / 0), details in utils_exception |
+| `utils/type/CApi.hpp` | `-` | `utils_worker`, `utils_blt` | Handles of the C API of utils::type (usable in c++ to get the object) |
+| `utils/type/CApiTypes.h` | `-` | - | Fixed types of the C API (X-macros: X(name, type) unrolled by each C API for its templates) (C & C++ compatible) name: suffix of the functions & types (utils_vector2_f64_t, utils_blt_str_size_*), str: const char* in C (std::string in c++, copied) |
+| `utils/type/CApiTypes.hpp` | `utils::type::c_api` | `Storage`, `Storage` | C++ side of the fixed types of the C API: storage of a C type (str: std::string) & the conversions |
 | `utils/type/Freezable.hpp` | `utils::type` | `Freezable` |  |
 | `utils/type/Worker.hpp` | `utils::type` | `Worker` |  |
 | `utils/type/blt/BidirectionalLookupTable.hpp` | `-` | - | Global bidirectional lookup table include |
@@ -201,11 +240,14 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
+| `utils/utils.h` | `-` | - | Main include for every part of the utils lib that has a C API (C & C++ compatible) Same sections as utils.hpp (_Utils, _Handling, _Exception, ...) |
 | `utils/utils.hpp` | `-` | - | Main include for every part of the utils lib |
+| `utils/version.h.in` | `-` | - | File generated by cmake that store the actual version used (C version of version.hpp) format (string): v<major>.<minor>.<fix> on error: [unknown] |
 | `utils/version.hpp.in` | `utils` | - | File generated by cmake that store the actual version used format (string): v<major>.<minor>.<fix> on error: [unknown] |
 
 ## verbose
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
+| `utils/verbose/CApi.h` | `-` | `utils_verbose_get`, `utils_verbose_is`, `utils_verbose_locked`, `utils_verbose_log`, `utils_verbose_log_to`, `utils_verbose_on`, `utils_verbose_set`, `utils_verbose_vlog` ... | C API of utils::verbose (level of the global verbose, printf style logs on the locked output) (C & C++ compatible) The logs go through std::cout like the c++ macros (onVerbose, ...), so the C & C++ logs stay in order |
 | `utils/verbose/Verbose.hpp` | `utils::verbose` | `Verbose`, `locked` | Marco & Define used for verbose usage |

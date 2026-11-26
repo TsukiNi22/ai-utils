@@ -22,8 +22,20 @@ import subprocess
 import sys
 
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ATTRIBUTE_MACROS = re.compile(r"\b_(hot|cold|nodiscard|noinline|unused|hidden|ctor|dtor|fallthrough|likely|unlikely|noaddress|packed|legacy)\b\s*")
+ATTRIBUTES = {"hot", "cold", "nodiscard", "noinline", "unused", "hidden", "ctor", "dtor", "fallthrough", "likely",
+              "unlikely", "noaddress", "packed", "legacy"} # completed by the macros of include/utils/attribute (v5)
+ATTRIBUTE_MACROS = re.compile("")
 MIGRATION = re.compile(r"_migration\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)\s*")
+HEADERS = (".hpp", ".hpp.in", ".h", ".h.in")
+# Versions of the attributes for another standard (v5): same macros as the default one, only their differences listed
+ATTRIBUTE_DEFAULT = "utils/attribute/c++20.hpp"
+ATTRIBUTE_VARIANTS = re.compile(r"^utils/attribute/(c\+\+(11|14|17|23)\.hpp|c(99|11|23)\.h|fallback\.hpp)$")
+
+def set_attributes(names: set[str]) -> None:
+    """Attribute macros removed from the signatures, with their arguments (ex: _format(printf, 2, 3))."""
+    global ATTRIBUTE_MACROS
+    alternation = "|".join(sorted(ATTRIBUTES | names, key=len, reverse=True))
+    ATTRIBUTE_MACROS = re.compile(rf"\b_({alternation})\b(\s*\([^()]*\))?\s*")
 
 def git(repo: str, *args: str) -> str:
     return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True).stdout
@@ -56,9 +68,13 @@ def split_comment(line: str) -> tuple[str, str]:
 
 def clean_lines(text: str) -> list[tuple[str, str]]:
     """Remove the block comments and the preprocessor, return [(code, comment)]."""
-    out, in_block = [], False
+    out, in_block, continued = [], False, False
     for raw in text.split("\n"):
         line = raw
+        if continued: # continuation of a multi-line preprocessor directive (#define X \)
+            continued = raw.rstrip().endswith("\\")
+            out.append(("", ""))
+            continue
         if in_block:
             end = line.find("*/")
             if end == -1: continue
@@ -74,19 +90,39 @@ def clean_lines(text: str) -> list[tuple[str, str]]:
             line = line[:start] + " " + line[end + 2:]
         code, comment = split_comment(line)
         if code.strip().startswith("#"): # preprocessor (continuations included)
+            continued = raw.rstrip().endswith("\\")
             out.append(("", ""))
             continue
         out.append((code.rstrip(), comment))
     return out
 
-def defines(text: str) -> list[tuple[str, str, str]]:
-    """#define NAME value // comment (without the include guards)."""
-    res = []
-    for raw in text.split("\n"):
+def macro_body(params: str, lines: list[str]) -> list[str]:
+    """Body of a multi-line macro declaring an API (C_API_*_DECL): one declaration per line, ##name## -> <name>."""
+    body = []
+    for line in lines:
+        line = line.rstrip().rstrip("\\").strip()
+        if not line: continue
+        for p in (p.strip() for p in params.strip("()").split(",") if p.strip()):
+            line = re.sub(rf"##{p}##|##{p}\b|\b{p}##", f"<{p}>", line)
+        line = re.sub(r"\s*/\*\s*(.*?)\s*\*/\s*$", r" // \1", line)
+        body.append("    " + line)
+    return body
+
+def defines(text: str) -> list[tuple[str, str, str, list[str]]]:
+    """#define NAME value // comment (without the include guards), with the body of the multi-line macros."""
+    res, lines, i = [], text.split("\n"), 0
+    while i < len(lines):
+        raw = lines[i]
+        i += 1
         m = re.match(r"^\s*#\s*define\s+(\w+)(\([^)]*\))?\s*(.*)$", raw)
         if not m or re.match(r"^\w+_H$", m.group(1)): continue
+        rest = []
+        while (rest[-1] if rest else raw).rstrip().endswith("\\") and i < len(lines):
+            rest.append(lines[i])
+            i += 1
         value, comment = split_comment(m.group(3))
-        res.append((m.group(1) + (m.group(2) or ""), value.strip().rstrip("\\").strip(), comment))
+        body = macro_body(m.group(2) or "", rest) if rest and ";" in "".join(rest) else []
+        res.append((m.group(1) + (m.group(2) or ""), value.strip().rstrip("\\").strip(), comment, body))
     return res
 
 def description(text: str) -> str:
@@ -130,6 +166,10 @@ class Parser:
                 if m and not buf:
                     access, s = m.group(1), m.group(2)
                     if not s: continue
+            if not buf and re.fullmatch(r"[A-Z][A-Z0-9_]*\s*\(.*\)", s): # C_API_INT_TYPES(C_API_X_DECL): macro expanded
+                if scope is None or access == "public":
+                    self.add({"kind": "expansion", "name": "", "ns": ns, "sig": s, "comment": com, "members": []}, scope)
+                continue
             if not buf: comment = com
             buf = (buf + " " + s).strip()
             if re.fullmatch(r"template\s*<.*>", buf) and buf.count("<") == buf.count(">"):
@@ -162,6 +202,10 @@ class Parser:
                         rest = self.text(i - 1, close)
                         stmt = (buf[:len(buf) - len(s)] + " " + rest[:rest.rfind("}") + 1]).strip()
                         self.statement(template + " " + stmt + ";", comment, ns, scope)
+                    i, buf, template = close + 1, "", ""
+                    continue
+                if kind == "linkage": # extern "C" { ... } of the C API: transparent
+                    self.block(i, close, ns=ns, scope=scope, access=access)
                     i, buf, template = close + 1, "", ""
                     continue
                 if kind == "namespace":
@@ -241,6 +285,7 @@ class Parser:
     @staticmethod
     def kind_of(head: str) -> str:
         h = re.sub(r"^template\s*<.*?>\s*", "", head)
+        if re.match(r'^extern\s+"C(\+\+)?"\s*$', h): return "linkage"
         if re.match(r"^namespace\b", h): return "namespace"
         if re.match(r"^enum\b", h): return "enum"
         if re.match(r"^(class|struct|union)\b", h) and "(" not in h.split(":")[0]:
@@ -305,7 +350,7 @@ def render_item(item: dict, indent: str = "") -> list[str]:
             out += render_item(m, indent + "    ")
         out.append(f"{indent}}};")
         return out
-    end = "" if item["kind"] == "enum" else ";"
+    end = "" if item["kind"] in ("enum", "expansion") else ";"
     return [f"{indent}{item['sig']}{end}{com}"]
 
 def main() -> int:
@@ -329,18 +374,29 @@ def main() -> int:
     remote = git(repo, "remote", "get-url", "origin").strip()
 
     files = sorted(f for f in git(repo, "ls-tree", "-r", "--name-only", commit, "include/utils").split("\n")
-                   if f.endswith((".hpp", ".hpp.in")))
+                   if f.endswith(HEADERS))
+    texts = {path: git(repo, "show", f"{commit}:{path}") for path in files}
+    attributes = {n.split("(")[0][1:] for p, t in texts.items() if "/attribute/" in p
+                  for n, *_ in defines(t) if re.match(r"^_[a-z]\w*", n)}
+    set_attributes(attributes)
+    default_attributes = {n.split("(")[0] for n, *_ in defines(texts.get(f"include/{ATTRIBUTE_DEFAULT}", ""))}
     sections: dict[str, list[dict]] = {}
     for path in files:
         rel = path[len("include/"):]
         parts = rel.split("/")
         section = parts[1] if len(parts) > 2 else "root"
-        text = git(repo, "show", f"{commit}:{path}")
+        text = texts[path]
+        desc, macros = description(text), defines(text)
+        if ATTRIBUTE_VARIANTS.match(rel) and default_attributes:
+            names = sorted({n.split("(")[0] for n, *_ in macros if n.startswith("_")} - default_attributes)
+            desc = (desc.rstrip(". ") + ". " if desc else "") + f"Same macros as `{ATTRIBUTE_DEFAULT}` for another standard" \
+                    + (f", plus: {', '.join(f'`{n}`' for n in names)}." if names else ".")
+            macros = []
         try:
             items = Parser(text).parse()
         except Exception as e: # never block the generation on one file
             items = [{"kind": "using", "name": "", "ns": "", "sig": f"/* parsing failed: {e} */", "comment": "", "members": []}]
-        sections.setdefault(section, []).append({"path": rel, "desc": description(text), "defines": defines(text), "items": items})
+        sections.setdefault(section, []).append({"path": rel, "desc": desc, "defines": macros, "items": items})
 
     os.makedirs(os.path.join(args.out, "api"), exist_ok=True)
     for old in os.listdir(os.path.join(args.out, "api")):
@@ -348,8 +404,8 @@ def main() -> int:
 
     stamp = f"Generated from libutils `{version}` (commit `{short}`, {date}) by `scripts/gen_api.py`, do not edit by hand."
     index = ["# libutils API index", "", stamp, "",
-             "Include path = `\"<header>\"` (ex: `#include \"utils/system/IdHandler.hpp\"`). "
-             "Details of a section: `api/<section>.md`.", ""]
+             "Header path under `include/` (a project includes `<utils/utils.hpp>`, or `<utils/utils.h>` for the C API "
+             "`*.h`, with the section defines). Details of a section: `api/<section>.md`.", ""]
     for section, headers in sections.items():
         index += [f"## {section}", "", "| Header | Namespace | Public types / functions | Description |", "|---|---|---|---|"]
         out = [f"# libutils `{section}`", "", stamp, ""]
@@ -365,7 +421,10 @@ def main() -> int:
             if namespaces: out += ["Namespace: " + ", ".join(f"`{n}`" for n in namespaces), ""]
             body = []
             if h["defines"]:
-                body += [f"#define {n} {v}".rstrip() + (f" // {c}" if c else "") for n, v, c in h["defines"]] + [""]
+                for n, v, c, macro in h["defines"]:
+                    body.append(f"#define {n} {v}".rstrip() + (f" // {c}" if c else "") + (" // declares, for each type:" if macro else ""))
+                    body += macro
+                body.append("")
             current = None
             for item in h["items"]:
                 if item["ns"] != current:
@@ -373,7 +432,7 @@ def main() -> int:
                     body.append(f"// namespace {current}" if current else "// global")
                 body += render_item(item)
             if any(l.strip() for l in body):
-                out += ["```cpp"] + body + ["```", ""]
+                out += ["```c" if h["path"].endswith((".h", ".h.in")) else "```cpp"] + body + ["```", ""]
         index.append("")
         with open(os.path.join(args.out, "api", f"{section}.md"), "w", encoding="utf-8") as f:
             f.write("\n".join(out))

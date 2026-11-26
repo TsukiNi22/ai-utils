@@ -1,6 +1,114 @@
 # libutils `network`
 
-Generated from libutils `v4.3.1` (commit `7913070`, 2026-10-22) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v5.0.0` (commit `6aac89f`, 2026-11-27) by `scripts/gen_api.py`, do not edit by hand.
+
+## `utils/network/CApi.h`
+
+C API of utils::network: sockets (TCP or of the C side), Client & Server (C & C++ compatible) Every function that can fail returns UTILS_OK / UTILS_KO (or NULL / 0 / -1), details in utils_exception Every callback returns what is asked or -1 / UTILS_KO (info: utils_fail / utils_exception_set)
+
+```c
+#define C_API_NETWORK_DEFAULT_IP "localhost"
+#define C_API_NETWORK_DEFAULT_PORT 8080
+#define C_API_NETWORK_SELF -1 // fd of the socket itself (the default fd of the c++)
+
+// global
+typedef struct utils_socket utils_socket_t; // std::shared_ptr<utils::network::ISocket> (TCPSocket or a socket of the C side)
+typedef struct utils_client utils_client_t; // utils::network::Client
+typedef struct utils_server utils_server_t; // utils::network::Server
+typedef struct utils_payloads utils_payloads_t; // utils::network::Payloads (list of payloads)
+typedef struct utils_network_messages utils_network_messages_t; // payloads of each client of a server (fd -> payloads)
+typedef enum utils_network_status { C_API_NETWORK_STATUS_UP = 0, C_API_NETWORK_STATUS_DOWN, C_API_NETWORK_STATUS_TERMINATED, C_API_NETWORK_STATUS_CRASHED };
+typedef struct utils_network_address { const char* ip; const char* hostname; uint16_t port; };
+typedef struct utils_socket_callbacks { int (*connect)(const utils_network_address_t* address, void* data); int (*listen)(const utils_network_address_t* address, void* data); int (*accept)(int fd, struct sockaddr* addr, socklen_t* len, void* data); ssize_t (*recv)(int fd, char* buf, size_t len, void* data); ssize_t (*send)(int fd, const char* buf, size_t len, void* data); };
+bool utils_network_is_ip(const char* str);
+const char* utils_network_resolve_hostname(const char* hostname); // ipv4 of the hostname, valid until the next call in the thread (NULL on error)
+size_t utils_network_resolve_hostname_r(const char* hostname, char* buf, size_t size); // copied in buf (truncated, always '\0' terminated), returns the full length like snprintf (0 on error)
+utils_payloads_t* utils_payloads_create(void); // NULL on error
+void utils_payloads_destroy(utils_payloads_t* payloads); // NULL: nothing
+size_t utils_payloads_count(const utils_payloads_t* payloads);
+const char* utils_payloads_get(const utils_payloads_t* payloads, size_t i, size_t* size); // valid until payloads is changed, size: optional (NULL on error)
+utils_network_messages_t* utils_network_messages_create(void); // NULL on error
+void utils_network_messages_destroy(utils_network_messages_t* messages); // NULL: nothing
+size_t utils_network_messages_count(const utils_network_messages_t* messages); // number of fds
+int utils_network_messages_fd(const utils_network_messages_t* messages, size_t i); // -1 on error
+size_t utils_network_messages_size(const utils_network_messages_t* messages, size_t i); // number of payloads of the fd i
+const char* utils_network_messages_get(const utils_network_messages_t* messages, size_t i, size_t j, size_t* size); // valid until messages is changed, size: optional (NULL on error)
+utils_socket_t* utils_socket_create_tcp(void); // utils::network::TCPSocket, NULL on error
+utils_socket_t* utils_socket_create(const utils_socket_callbacks_t* callbacks, void* data); // socket of the C side (connect & listen mandatory), NULL on error
+void utils_socket_destroy(utils_socket_t* socket); // NULL: nothing (closed when the last client / server using it is destroyed)
+int utils_socket_set_payload_separator(utils_socket_t* socket, const char* separator); // default: "\n"
+int utils_socket_set_chunk_size(utils_socket_t* socket, size_t size); // default: 4096
+int utils_socket_set_overflow(utils_socket_t* socket, size_t overflow); // size without a valid payload before an error, default: 4096 (0 = unlimited)
+int utils_socket_get_fd(const utils_socket_t* socket); // -1: closed or error
+bool utils_socket_has_accept_overload(const utils_socket_t* socket);
+bool utils_socket_has_recv_overload(const utils_socket_t* socket);
+bool utils_socket_has_send_overload(const utils_socket_t* socket);
+int utils_socket_connect(utils_socket_t* socket, const utils_network_address_t* address); // once (close to reuse it)
+int utils_socket_listen(utils_socket_t* socket, const utils_network_address_t* address); // once (close to reuse it)
+int utils_socket_reset(utils_socket_t* socket); // reset the fd & the buffers (the fd is NOT closed)
+int utils_socket_close(utils_socket_t* socket);
+int utils_socket_accept(utils_socket_t* socket); // server mode only: the fd of the new connection, -1 on error
+int utils_socket_accept_raw(const utils_socket_t* socket, int fd, struct sockaddr* addr, socklen_t* len); // -1 on error
+ssize_t utils_socket_recv_raw(const utils_socket_t* socket, int fd, char* buf, size_t len); // -1 on error
+ssize_t utils_socket_send_raw(const utils_socket_t* socket, int fd, const char* buf, size_t len); // -1 on error
+bool utils_socket_empty(const utils_socket_t* socket, int fd); // no valid payload in the buffer
+int utils_socket_recv(utils_socket_t* socket, int fd, utils_string_t* payload); // the next payload (payload replaced)
+int utils_socket_recv_all(utils_socket_t* socket, int fd, utils_payloads_t* payloads); // every valid payload (payloads replaced)
+int utils_socket_flush(utils_socket_t* socket, int fd); // send the buffer
+size_t utils_socket_receive(utils_socket_t* socket, int fd); // read once (after a poll event) in the buffer, never wait for a full payload (0: nothing or error)
+int utils_socket_discard(utils_socket_t* socket, int fd); // forget the buffers of a fd, -1: every fd
+int utils_socket_send(utils_socket_t* socket, const char* data, size_t size, int fd); // send it now
+int utils_socket_send_buffered(utils_socket_t* socket, const char* data, size_t size, int fd); // store it in the buffer
+utils_client_t* utils_client_create(const utils_socket_t* socket, const utils_network_address_t* address); // address: NULL = the default one, NULL on error
+void utils_client_destroy(utils_client_t* client); // NULL: nothing (killed)
+int utils_client_start(utils_client_t* client); // start / restart
+int utils_client_stop(utils_client_t* client); // can be restarted (thread safe)
+int utils_client_kill(utils_client_t* client); // can't be restarted (thread safe)
+int utils_client_listen(utils_client_t* client, utils_payloads_t* payloads); // the payloads received (payloads replaced)
+int utils_client_join(utils_client_t* client); // wait until the next listen event
+int utils_client_flush(utils_client_t* client); // send the buffered payloads
+int utils_client_send(utils_client_t* client, const char* payload, size_t size); // send it now
+int utils_client_send_buffered(utils_client_t* client, const char* payload, size_t size); // sent at the next send / flush
+utils_network_status_t utils_client_get_status(const utils_client_t* client); // C_API_NETWORK_STATUS_CRASHED on error
+utils_server_t* utils_server_create(const utils_socket_t* socket, const utils_network_address_t* address); // address: NULL = the default one, NULL on error
+void utils_server_destroy(utils_server_t* server); // NULL: nothing (killed)
+int utils_server_start(utils_server_t* server); // start / restart
+int utils_server_stop(utils_server_t* server); // can be restarted (thread safe)
+int utils_server_kill(utils_server_t* server); // can't be restarted (thread safe)
+int utils_server_join(utils_server_t* server, int fd); // wait until the next listen event on this fd (-1: any)
+int utils_server_flush(utils_server_t* server); // send the buffered payloads of every client
+int utils_server_flush_fd(utils_server_t* server, int fd); // of a client
+int utils_server_send(utils_server_t* server, int fd, const char* payload, size_t size); // send it now
+int utils_server_send_buffered(utils_server_t* server, int fd, const char* payload, size_t size); // sent at the next send / flush
+int utils_server_listen(utils_server_t* server, utils_network_messages_t* messages); // the payloads of every client (messages replaced)
+int utils_server_listen_fd(utils_server_t* server, int fd, utils_payloads_t* payloads); // the payloads of a client (payloads replaced, empty if it was removed)
+size_t utils_server_get_fds(const utils_server_t* server, int* fds, size_t max); // fds of the clients copied (max at most), returns their number (0 on error)
+utils_network_status_t utils_server_get_status(const utils_server_t* server); // C_API_NETWORK_STATUS_CRASHED on error
+```
+
+## `utils/network/CApi.hpp`
+
+Handles of the C API of utils::network (usable in c++ to get the object)
+
+```cpp
+// global
+struct utils_socket: public utils_handle {
+    std::shared_ptr<utils::network::ISocket> socket;
+    utils_socket(std::shared_ptr<utils::network::ISocket> s);
+};
+struct utils_client: public utils_handle, public utils::network::Client {
+    utils_client(const std::shared_ptr<utils::network::ISocket>& socket, const utils::network::Address& address);
+};
+struct utils_server: public utils_handle, public utils::network::Server {
+    utils_server(const std::shared_ptr<utils::network::ISocket>& socket, const utils::network::Address& address);
+};
+struct utils_payloads: public utils_handle {
+    utils::network::Payloads payloads;
+};
+struct utils_network_messages: public utils_handle {
+    std::vector<std::pair<int, utils::network::Payloads>> messages;
+};
+```
 
 ## `utils/network/Client.hpp`
 

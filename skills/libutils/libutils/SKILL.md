@@ -1,8 +1,8 @@
 ---
 name: libutils
-description: Reference of Tsukini's C++20 library libutils (namespace utils::, github TsukiNi22/libutils) - every section, header, class and public method with the version and commit hash it was generated from, how to link/include it, exceptions/error codes, verbose, and how to find what changed since. Use whenever code uses or could use libutils (utils::..., include "utils/...", find_package(utils)), when the user asks which libutils class/function does something, how to use one, or what is new in libutils, instead of searching the library sources.
+description: Reference of Tsukini's C++20 library libutils (namespace utils::, github TsukiNi22/libutils) - every section, header, class and public method, and the C API of v5 (utils/SECTION/CApi.h, utils_* functions, utils_exception status), with the version and commit hash it was generated from, how to link/include it (find_package(utils 5.0.0), same major only), exceptions/error codes, attributes, verbose, and how to find what changed since. Use whenever code uses or could use libutils (utils::..., utils_..., include "utils/...", utils/utils.h, find_package(utils)), when the user asks which libutils class/function does something, how to use one, or what is new in libutils, instead of searching the library sources.
 metadata:
-  summary: 'Reference of my library [libutils](https://github.com/TsukiNi22/libutils): every section, header and public API generated from a recorded version/commit (`reference/VERSION.md`), integration and conventions, plus `scripts/update.sh` to see what changed since that commit and regenerate.'
+  summary: 'Reference of my library [libutils](https://github.com/TsukiNi22/libutils): every section, header and public API (C++ and C API) generated from a recorded version/commit (`reference/VERSION.md`), integration and conventions, plus `scripts/update.sh` to see what changed since that commit and regenerate.'
 ---
 
 # libutils reference
@@ -39,8 +39,10 @@ Before relying on the reference, here and in every skill that requires libutils 
    default values, trailing comments = documentation). Read only the needed section.
 3. Error codes: `reference/exception-codes.md`.
 4. Real usage examples: the unit tests of the same commit,
-   `git -C LIBUTILS show <commit>:tests/<section>/<file>` (`git -C LIBUTILS ls-tree -r --name-only <commit> tests`),
-   and the wiki https://github.com/TsukiNi22/libutils/wiki.
+   `git -C LIBUTILS show <commit>:tests/<section>/<file>` (`git -C LIBUTILS ls-tree -r --name-only <commit> tests`;
+   the C API: `tests/<section>/CApi.cpp`, `tests/c/CApi.c`), the documentation site
+   https://tsukini22.github.io/libutils/docs/ (v5.0.0, EN / FR, a page per section with its C++ and C API) and the wiki
+   https://github.com/TsukiNi22/libutils/wiki.
 5. Only if the answer is not in the reference: read the header itself at the commit
    (`git -C LIBUTILS show <commit>:include/utils/<path>`) for the implementation details.
 
@@ -61,11 +63,16 @@ Before relying on the reference, here and in every skill that requires libutils 
 
 ## Integration
 ```cmake
-find_package(utils 4.0.0 CONFIG REQUIRED)                      # minimal version (SameMajorVersion: 3.x is refused)
+find_package(utils 5.0.0 CONFIG REQUIRED)                      # minimal version, same major only (SameMajorVersion)
 target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + include path
 ```
-- Packages (`dnf`/`apt`, see the README `setup.sh`): `libutils` (= `libutils-dev` + `libutils-op`),
-  `-db` debug, `-as` asan, `-pre` pre-release; from the sources: `cmake -S . -B build && sudo cmake --build build --target install`.
+- **Major version**: the config of libutils accepts a request of its own major only. libutils 5.x refuses
+  `find_package(utils 4.x)`: CMake then takes another installed libutils 4 without a word, or stops
+  (`version: 5.0.0` "considered but not accepted"). A project moves to `5.0.0` with `libutils-setup`
+  (`setup_project.py <root> --version 5.0.0`, also a `set(LIBUTILS_VERSION ...)` of cpp_project_template).
+- Packages (`dnf` / `apt` / `pacman`, see the README `setup.sh`): `libutils` (= `libutils-dev` + `libutils-op`),
+  `-db` debug, `-as` asan, `libutils-dev-op` / `-dev-db` / `-dev-as` the CMake config of each variant, `-pre`
+  pre-release; from the sources: `cmake -S . -B build && sudo cmake --build build --target install`.
   Windows (v4.1.0): `mingw64-libutils` (= `-dev` + `-op`), `mingw64-libutils-db` (no asan), `-pre`, same mirror,
   installed in the MinGW sysroot (found by `find_package(utils)` with a MinGW toolchain: `mingw64-cmake` on Fedora).
 - Platforms (v4.0.0+): Unix and Windows x86_64 (cross compiled with MinGW-w64: the packages `mingw64-libutils*`
@@ -90,6 +97,22 @@ target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + in
   `reference/layout.md` "libutils includes".
 - Warnings: `_Warning` enables the deprecation/backward-compatibility/linker/usage warnings,
   `_NoWarning` disables them (`add_definitions(-D_NoWarning)`).
+- **C API** (v5.0.0, C11 / C23, in the same `libutils.a`): every section except `concepts` has `utils/<section>/CApi.h`
+  (`utils_<section>_*` functions); `#include <utils/utils.h>` with the same section defines as `utils.hpp` (plus
+  `_Verbose`, `_Encapsulation`, `_Pool`, `_Platform`, `_Geometry` / `_Trigo`, `_Vector` / `_Matrix` / `_BLT`,
+  `_Encryption` / `_Observer`, `_C2DMP` / `_SOS`, `_Middleware`). Rules (`readme/c-api.md` of libutils):
+  | Point | C API |
+  |---|---|
+  | link | a C++ linker: `project(app LANGUAGES C CXX)` + `utils::utils` (or `-lstdc++`) |
+  | errors | no exception crosses: `UTILS_KO` / `NULL` / `0`, then the thread local `utils_exception` (type, code, what, info, location, origin), `utils_exception_format()` |
+  | callbacks | return `UTILS_OK`, or `utils_fail(code, info)` (= `UTILS_KO` with the details) |
+  | objects | opaque handles `utils_<name>_t*`, `_create` / `_destroy`; `utils_freezable_*` / `utils_worker_*` on any handle |
+  | templates | one set of functions per fixed type (`i8` ... `u64`, `size`, `f32`, `f64`, `f128`, `bool`, `char`, `str`) + bytes (data + size) |
+  | strings | a thread local result, or the `_r` version writing in the buffer of the caller (full length returned, like `snprintf`) |
+  | strict C | `#define _POSIX_C_SOURCE 200809L` before the include for `_Platform`, `_Encapsulation`, `_Network`, `_Cli` |
+  Version in C: `utils/version.h` (`__LIBUTILS_VERSION__`, `utils_version`). The C++ side of the C API
+  (`utils::exception::c_api::guard`, `not_null`, `handle_base`, `utils_handle`) is in the `CApi.hpp` headers: only for
+  writing a new C API.
 - Linker needs: `Base64Codec`, `AESKey`, `RSAKey` (and `EETPParser`) need OpenSSL (`-lssl -lcrypto`); since
   v3.0.0 the public headers include OpenSSL, `libutils-dev` requires `openssl-devel` / `libssl-dev`.
 - License: libutils is MIT, but `algorithms` (c2dmp-hsm, s.o.s) is CC BY-NC-SA 4.0 (non-commercial, see
@@ -102,6 +125,10 @@ target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + in
 - Naming (v3.0.0): public names follow the convention (`autoCast`, `utils::cli::flags`, `isLoaded`,
   `set_style`, `read_mouse_event`, `key_to_string`, `FixedString`, `ConvertibleTo`...); the old names (`_migration`
   aliases in v3.x) were **removed in v4.0.0**: always write the new name, an old one doesn't build anymore.
+- Migrations of v5.0.0 (`[deprecated ~v6.0.0]` in the reference): the constructor `SharedMemory(std::uint16_t
+  ownership)` -> the `pid_t` one; `copy` / `copy_r` of the C API moved from `utils::exception::c_api` to
+  `utils::smanip::c_api`; the Windows POSIX types of `utils::platform` (`Dl_info`, `epoll_event`, `termios`,
+  `socklen_t`...) are in `utils/platform/Types.h`.
 - Errors: exceptions, never error codes (`throw utils::exception::ErrorException(InternalCode::X, "info")`,
   `catch (const utils::exception::IException& e) {... e.formated() ...}`). Everything about the exception
   classes, the restrictions and adding project codes (JSON + generator + CMake): the `libutils-exception` skill.
@@ -112,9 +139,16 @@ target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + in
   `onDebugVerbose(info)`, `onVerbose(level, info)`; `*C(output, info)` for another stream, `*Fn(code)` to run code.
 - Attribute macros (`_hot`, `_cold`, `_nodiscard`, `_unused`, `_likely`, `_alignas(n)`, `_nonnull(p)`...): given by
   `<utils/utils.hpp>`, always preferred to the raw form (`_alignas(std::hardware_destructive_interference_size)`,
-  never `alignas(...)`); `std::hardware_*_interference_size` is guaranteed (fallback 64). Lookup order when an
-  attribute is needed: the reference `api/attribute.md`, then the attribute files of the project / system
-  (`cpp-class/scripts/list_attributes.sh <project>`), then only the standard `[[...]]` form (`cpp-style`).
+  never `alignas(...)`); `std::hardware_*_interference_size` is guaranteed (fallback 64). Since v5.0.0
+  `utils/attribute/Attribute.hpp` picks the file of the standard (`c++11` ... `c++23.hpp`, `c99` / `c11` / `c23.h` for
+  C, `FORCED_CXX_STANDARD` / `FORCED_C_STANDARD` to force one, empty `fallback.hpp` without a GNU compiler), the macros
+  use `[[gnu::...]]` and are grouped by purpose; new: `_export` / `_import`, `_restrict`, `_cleanup(fn)`,
+  `_always_inline`, `_flatten`, `_const`, `_pure`, `_unreachable`, `_format(printf, i, j)`, `_sentinel`, `_malloc`,
+  `_returns_nonnull`. Lookup order when an attribute is needed: the reference `api/attribute.md` (`c++20.hpp`,
+  `common.hpp`, `_legacy` / `_migration` in `c++.hpp`), then the attribute files of the project / system (`cpp-class/scripts/list_attributes.sh <project>`),
+  then only the standard `[[...]]` form (`cpp-style`).
+- `OK` / `KO` (v5.0.0: `utils/exception/Common.hpp`, C and C++): defined only when free; `UTILS_OK` / `UTILS_KO` always
+  (the C API returns them).
 - Most classes are non-copyable (`= delete`) and inherit `utils::security::observer::Observer<"Name">`
   (instance tracking for the memory-leak notifier, nothing to do on the user side).
 
@@ -137,7 +171,9 @@ target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + in
 | `system` | `utils::system` | `IdHandler<T>`, `Scheduler` (delayed tasks), `LoadBalancer<T>` (workers) |
 | `type` | `utils::type` | `Vector2/3`, `OVector2/3`, `Matrix`/`OMatrix`, `BidirectionalLookupTable`, `Freezable`, `Worker` |
 | `verbose` | `utils::verbose` | verbose levels and macros |
-| `root` | `utils` | `utils.hpp` umbrella include, `utils::version` |
+| `root` | `utils` | `utils.hpp` / `utils.h` umbrella includes, `utils::version` / `utils_version` |
+
+Every section but `concepts` also has its C API (`utils/<section>/CApi.h`, in the same `api/<section>.md`).
 
 ## Use libutils instead of rewriting it
 In a project that uses libutils (installed **and** `find_package(utils)` / `utils.hpp` in the project), never

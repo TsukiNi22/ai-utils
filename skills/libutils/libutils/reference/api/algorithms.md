@@ -1,6 +1,39 @@
 # libutils `algorithms`
 
-Generated from libutils `v4.3.1` (commit `7913070`, 2026-10-22) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v5.0.0` (commit `6aac89f`, 2026-11-27) by `scripts/gen_api.py`, do not edit by hand.
+
+## `utils/algorithms/CApi.h`
+
+C API of the algorithms of libutils: c2dmp-hsm (string similarity) & s.o.s (steganography) (C & C++ compatible) Wrapper of the synced sources (c2dmp-hsm/, sos/), their template parameters given at runtime Every function that can fail returns UTILS_OK / UTILS_KO (or -1 / 0), details in utils_exception
+
+```c
+#define C_API_SOS_MAGIC 0x22 // magic of the embedded payloads (fixed in the C API)
+#define C_API_SOS_DECL(name, ctype) // declares, for each type:
+    int utils_sos_embed_<name>(ctype* carrier, size_t count, const ctype* payload, size_t payload_count, const ctype* key, size_t key_count, int options); // options: C_API_SOS_OPTION_*
+    size_t utils_sos_extract_<name>(const ctype* carrier, size_t count, const ctype* key, size_t key_count, ctype* out, size_t max); // payload copied in out (max at most), returns its full count (0 on error)
+
+// global
+typedef enum utils_sos_option { C_API_SOS_OPTION_NONE = 0, C_API_SOS_OPTION_NOISE = 1 << 0, C_API_SOS_OPTION_GLOBAL_NOISE = 1 << 1 };
+float utils_c2dmp(const char* a, size_t a_size, const char* b, size_t b_size, uint8_t prefix_depth, size_t counter_size, bool full);
+float utils_c2dmp_default(const char* a, const char* b); // '\0' terminated strings, prefix depth 3, 1 byte counter, not full
+C_API_SOS_DECL(u8, uint8_t)
+C_API_SOS_DECL(u16, uint16_t)
+C_API_SOS_DECL(u32, uint32_t)
+C_API_SOS_DECL(u64, uint64_t)
+```
+
+## `utils/algorithms/CApi.hpp`
+
+Macros of the C API of the algorithms (definitions of the fixed types, expanded in the .cpp)
+
+```cpp
+#define C_API_SOS_DEF(name, ctype) // declares, for each type:
+    int utils_sos_embed_<name>(ctype* carrier, size_t count, const ctype* payload, size_t payload_count, const ctype* key, size_t key_count, int options)
+    {return sos_embed(carrier, count, payload, payload_count, key, key_count, options);}
+    size_t utils_sos_extract_<name>(const ctype* carrier, size_t count, const ctype* key, size_t key_count, ctype* out, size_t max)
+    {return sos_extract(carrier, count, key, key_count, out, max);}
+
+```
 
 ## `utils/algorithms/c2dmp-hsm/algorithm/foptimized.hpp`
 
@@ -14,7 +47,7 @@ Namespace: `utils::algorithms::c2dmp`
 
 // namespace utils::algorithms::c2dmp
 static consteval std::array<unsigned char, 256> makeLookupTable_(void);
-_alignas(std::hardware_destructive_interference_size) static constexpr std::array<unsigned char, 256> lookupTable = makeLookupTable_(); // case insensitive lookup table
+static constexpr std::array<unsigned char, 256> lookupTable = makeLookupTable_(); // case insensitive lookup table
 static unsigned char normalize_(const unsigned char c); // unused warning removed: always inlined, never really called
 template<std::uint_fast8_t prefixDepthSearch = 3, typename UIntT = std::uint_fast8_t> float c2dmp_foptimized(const std::string_view a, const std::string_view b);
 ```
@@ -30,9 +63,9 @@ Namespace: `utils::algorithms::c2dmp`
 
 // namespace utils::algorithms::c2dmp
 static consteval std::array<unsigned char, 256> makeLookupTable_(void);
-_alignas(std::hardware_destructive_interference_size) static constexpr std::array<unsigned char, 256> lookupTable = makeLookupTable_(); // case insensitive lookup table
+static constexpr std::array<unsigned char, 256> lookupTable = makeLookupTable_(); // case insensitive lookup table
 static unsigned char normalize_(const unsigned char c); // unused warning removed: always inlined, never really called
-template<std::uint_fast8_t prefixDepthSearch = 3, typename UIntT = std::uint_fast8_t> _deprecated("This version isn't the most optimized one, you should use c2dmp_foptimized or c2dmp") float c2dmp_fsimplified(const std::string_view a, const std::string_view b);
+template<std::uint_fast8_t prefixDepthSearch = 3, typename UIntT = std::uint_fast8_t> float c2dmp_fsimplified(const std::string_view a, const std::string_view b);
 ```
 
 ## `utils/algorithms/c2dmp-hsm/algorithm/optimized.hpp`
@@ -47,7 +80,7 @@ Namespace: `utils::algorithms::c2dmp`
 
 // namespace utils::algorithms::c2dmp
 static consteval std::array<unsigned char, 256> makeLookupTable_(void);
-_alignas(std::hardware_destructive_interference_size) static constexpr std::array<unsigned char, 256> lookupTable = makeLookupTable_(); // case insensitive lookup table
+static constexpr std::array<unsigned char, 256> lookupTable = makeLookupTable_(); // case insensitive lookup table
 static unsigned char normalize_(const unsigned char c); // unused warning removed: always inlined, never really called
 template<std::uint_fast8_t prefixDepthSearch = 3, typename UIntT = std::uint_fast8_t> float c2dmp_optimized(const std::string_view a, const std::string_view b);
 ```
@@ -63,9 +96,9 @@ Namespace: `utils::algorithms::c2dmp`
 
 // namespace utils::algorithms::c2dmp
 static consteval std::array<unsigned char, 256> makeLookupTable_(void);
-_alignas(std::hardware_destructive_interference_size) static constexpr std::array<unsigned char, 256> lookupTable = makeLookupTable_(); // case insensitive lookup table
+static constexpr std::array<unsigned char, 256> lookupTable = makeLookupTable_(); // case insensitive lookup table
 static unsigned char normalize_(const unsigned char c); // unused warning removed: always inlined, never really called
-template<std::uint_fast8_t prefixDepthSearch = 3, typename UIntT = std::uint_fast8_t> _deprecated("This version isn't the most optimized one, you should use c2dmp_optimized or c2dmp") float c2dmp_simplified(const std::string_view a, const std::string_view b);
+template<std::uint_fast8_t prefixDepthSearch = 3, typename UIntT = std::uint_fast8_t> float c2dmp_simplified(const std::string_view a, const std::string_view b);
 ```
 
 ## `utils/algorithms/c2dmp-hsm/c2dmp-hsm.hpp`

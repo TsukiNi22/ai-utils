@@ -10,6 +10,7 @@
 #   remove             remove every libutils package (--repo: also the mirror & key)
 #   repo               only setup the mirror & GPG key
 #   channel            the channel install would use (the newest of stable / pre), no root
+#   refresh            reload the metadata of the mirror (a new version not seen yet): the root cache too
 #   windows            libutils for Windows x86_64 (v4.1.0+): its packages mingw64-libutils* (dnf/apt, in the MinGW sysroot);
 #                      none on the mirror or --source: built from the sources (MinGW-w64) into --prefix, no root
 #
@@ -41,7 +42,7 @@ COMMAND="${1:-}"
 
 PREFIX="$HOME/.local/share/libutils/windows"
 
-usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -90,7 +91,28 @@ packages() {
     echo "$list"
 }
 other_channel() { [[ -z "$CHANNEL" ]] && echo "-pre" || echo ""; }
+repo_file() { # the file of the mirror: its own setup.sh (libutils.repo / libutils.list) or my-universe (universe.repo)
+    case "$FAMILY" in
+        rpm) grep -ls "^baseurl=$BASE_URL/" /etc/yum.repos.d/*.repo 2>/dev/null | head -1 ;;
+        deb) grep -ls "$BASE_URL" /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null | head -1 ;;
+    esac
+    return 0
+}
+repo_id() { # rpm: the id of the [section] of the mirror (libutils, universe-libutils...)
+    local file; file="$(repo_file)"
+    [[ -n "$file" ]] && awk -v url="baseurl=$BASE_URL/" '/^\[/{id=substr($0, 2, length($0) - 2)} index($0, url) == 1 {print id; exit}' "$file"
+    return 0
+}
+REFRESHED=false
+refresh_user_cache() { # rpm: the metadata of the mirror reloaded once (the cache can miss a version published since)
+    $REFRESHED && return 0
+    REFRESHED=true
+    local id; id="$(repo_id)"
+    [[ "$FAMILY" = "rpm" ]] && [[ -n "$id" ]] && { dnf -q makecache --refresh --repo="$id" > /dev/null 2>&1 || echo "warning: the metadata of $id could not be reloaded (offline?): cached versions" >&2; }
+    return 0
+}
 available() { # <package>: its newest version on the mirror ("" unknown)
+    refresh_user_cache
     case "$FAMILY" in
         rpm) dnf -q repoquery --latest-limit 1 --qf '%{version}\n' "$1" 2>/dev/null | head -1 ;;
         deb) apt-cache policy "$1" 2>/dev/null | sed -n 's/^ *Candidate: \([^-]*\).*/\1/p' | grep -v none | head -1 ;;
@@ -113,13 +135,7 @@ header_version() {
         [[ -f "$d/utils/version.hpp" ]] && echo "$(sed -n 's/.*__LIBUTILS_VERSION__ "\(.*\)".*/\1/p' "$d/utils/version.hpp" | head -1) ($d)"
     done
 }
-repo_ready() {
-    case "$FAMILY" in
-        rpm) [[ -f /etc/yum.repos.d/libutils.repo ]] ;;
-        deb) [[ -f /etc/apt/sources.list.d/libutils.list ]] ;;
-        *) false ;;
-    esac
-}
+repo_ready() { [[ -n "$(repo_file)" ]]; }
 need_root() {
     [[ -z "$SUDO" ]] && return 0
     [[ "$SUDO" == *"-A"* ]] && return 0
@@ -235,7 +251,7 @@ windows_version() { # the packages (MinGW sysroot), else the source build of --p
 case "$COMMAND" in
     status)
         echo "OS: $OS_ID $OS_VERSION ($FAMILY)"
-        echo "Mirror: $(repo_ready && echo configured || echo 'not configured')"
+        echo "Mirror: $(repo_ready && echo "configured ($(repo_file)$([[ -n "$(repo_id)" ]] && echo ", $(repo_id)"))" || echo 'not configured')"
         echo "Installed packages:"; installed | sed 's/^/  /' | grep . || echo "  none"
         echo "Headers: $(header_version | paste -sd ' ' || true)"; [[ -z "$(header_version)" ]] && echo "  none"
         if [[ -d /usr/local/include/utils ]] && [[ -d /usr/include/utils ]]; then
@@ -244,9 +260,20 @@ case "$COMMAND" in
         fi
         echo "Windows build: $([[ -n "$(windows_version)" ]] && windows_version || echo "none (libutils.sh windows)")"
         case "$FAMILY" in
-            rpm) echo "Last available:"; dnf -q repoquery --latest-limit 1 --qf '  %{name} %{version}-%{release}\n' libutils-pre libutils 2>/dev/null | sort -u || true ;;
-            deb) echo "Available:"; apt-cache policy libutils-pre libutils 2>/dev/null | grep -E '^[a-z]|Candidate' | sed 's/^/  /' || true ;;
+            rpm) refresh_user_cache; echo "Last available:"; dnf -q repoquery --latest-limit 1 --qf '  %{name} %{version}-%{release}\n' libutils-pre libutils 2>/dev/null | sort -u || true ;;
+            deb) echo "Available (lists of the last apt-get update: libutils.sh refresh):"; apt-cache policy libutils-pre libutils 2>/dev/null | grep -E '^[a-z]|Candidate' | sed 's/^/  /' || true ;;
         esac
+        ;;
+
+    refresh)
+        repo_ready || { echo "No libutils mirror configured: libutils.sh repo" >&2; exit 1; }
+        need_root
+        case "$FAMILY" in
+            rpm) $SUDO dnf -q makecache --refresh --repo="$(repo_id)"; refresh_user_cache ;;
+            deb) $SUDO apt-get update -q ;;
+        esac
+        echo "Metadata of the mirror reloaded ($(repo_file))"
+        resolve_channel
         ;;
 
     windows)
@@ -307,11 +334,12 @@ case "$COMMAND" in
             fi
             if $REPO; then
                 need_root
-                case "$FAMILY" in
-                    rpm) $SUDO rm -f /etc/yum.repos.d/libutils.repo ;;
-                    deb) $SUDO rm -f /etc/apt/sources.list.d/libutils.list /etc/apt/keyrings/libutils.gpg ;;
+                case "$(repo_file)" in
+                    /etc/yum.repos.d/libutils.repo) $SUDO rm -f /etc/yum.repos.d/libutils.repo; echo "Mirror removed" ;;
+                    /etc/apt/sources.list.d/libutils.list) $SUDO rm -f /etc/apt/sources.list.d/libutils.list /etc/apt/keyrings/libutils.gpg; echo "Mirror removed" ;;
+                    "") echo "No mirror to remove" ;;
+                    *) echo "Mirror kept: it comes from $(repo_file) (my-universe), shared with other packages" ;;
                 esac
-                echo "Mirror removed"
             fi
         fi
         if [[ -d /usr/local/include/utils ]] || ls /usr/local/lib*/libutils*.a > /dev/null 2>&1; then

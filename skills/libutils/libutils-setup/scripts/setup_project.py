@@ -8,7 +8,9 @@ Usage:
     --exceptions   also set up the custom exception codes (JSON config, generator scripts, CMake block,
                    include/exception, .gitignore)
     --targets      targets linked to libutils (default: every add_executable/add_library of the root CMake)
-    --version      minimal version for find_package (default: the installed one)
+    --version      minimal version for find_package (default: the installed one); an existing requirement is raised
+                   to it (never lowered), without --version only when the installed major is newer (libutils
+                   accepts its own major only: 5.x refuses find_package(utils 4.x))
     --dry-run      print the new CMakeLists.txt and the files that would be created, change nothing
 
 The CMake is edited in Tsukini's layout (cmake-style): '# Requirement', '# Special Targets' and
@@ -77,6 +79,28 @@ def installed_version() -> str | None:
               f"by the compiler (libutils-install: 'libutils.sh remove --local' to drop it)", file=sys.stderr)
     return max((v for _, v in found), key=lambda v: [int(x) for x in v.split(".")])
 
+def version_tuple(version: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in version.lstrip("v").split(".") if x.isdigit())
+
+def raise_requirement(text: str, version: str, explicit: bool) -> tuple[str, str | None]:
+    """An existing find_package(utils X) - or the set(VAR X) it reads - raised to `version`."""
+    found = re.search(r"find_package\(\s*utils\s+([^\s)]+)", text)
+    if not found:
+        return text, None
+    current, start, end = found.group(1), found.start(1), found.end(1)
+    variable = re.fullmatch(r"\$\{(\w+)\}", current)
+    if variable:
+        found = re.search(rf"set\(\s*{variable.group(1)}\s+([0-9.]+)", text)
+        if not found:
+            return text, None
+        current, start, end = found.group(1), found.start(1), found.end(1)
+    if not re.fullmatch(r"[0-9.]+", current):
+        return text, None
+    old, new = version_tuple(current), version_tuple(version)
+    if new <= old or (not explicit and new[:1] == old[:1]):
+        return text, None
+    return text[:start] + version + text[end:], f"find_package(utils): {current} -> {version}"
+
 def section_end(lines: list[str], title: str) -> int | None:
     """Index after the last non empty line of the section `title` (None if the section doesn't exist)."""
     for i, l in enumerate(lines):
@@ -136,11 +160,12 @@ def main() -> int:
         print(f"Error: libutils is not installed: install it ({remote_setup('https://raw.githubusercontent.com/TsukiNi22/libutils/main/setup.sh')}) or give --version",
               file=sys.stderr); return 2
     text = open(cmake, encoding="utf-8").read()
-    lines = text.split("\n")
+    raised, change = raise_requirement(text, version, bool(a.version))
+    lines = raised.split("\n")
     targets = [t for t in a.targets.split(",") if t] or targets_of(text)
     if not targets:
         sys.stderr.write("Error: no add_executable/add_library found, give --targets\n"); return 1
-    done = []
+    done = [change] if change else []
 
     # Requirement
     if not re.search(r"find_package\(\s*utils\b", text):
@@ -164,7 +189,8 @@ def main() -> int:
     for t in targets:
         tre = re.escape(t)
         m = re.search(rf"^(\s*target_link_libraries\(\s*{tre}\s+(?:PRIVATE|PUBLIC|INTERFACE)\b[^)\n]*)\)", joined, re.M)
-        if m and "utils::utils" not in m.group(1):
+        linked = re.search(rf"target_link_libraries\(\s*{tre}\s[^)]*utils::utils", joined) # on any line (if / else)
+        if m and not linked:
             joined = joined[:m.end(1)] + " utils::utils" + joined[m.end(1):]
             done.append(f"{t}: + utils::utils")
         elif not m and not re.search(rf"target_link_libraries\(\s*{tre}\b[^)]*utils::utils", joined):

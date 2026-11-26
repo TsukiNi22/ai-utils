@@ -14,6 +14,7 @@ Everything goes through `scripts/libutils.sh` (`SKILL_DIR` = directory of this f
 bash SKILL_DIR/scripts/libutils.sh status                      # always first (no root needed)
 bash SKILL_DIR/scripts/libutils.sh install [--variants db,as|all] [--stable|--pre]
 bash SKILL_DIR/scripts/libutils.sh channel                     # the channel install would take (no root)
+bash SKILL_DIR/scripts/libutils.sh refresh                     # reload the metadata of the mirror (root cache too)
 bash SKILL_DIR/scripts/libutils.sh update                      # keeps the installed variants
 bash SKILL_DIR/scripts/libutils.sh remove [--repo] [--local]
 bash SKILL_DIR/scripts/libutils.sh repo                        # mirror + GPG key only
@@ -30,14 +31,25 @@ else ask once (continue / update the installed libutils with `libutils-install` 
 ## What it does
 - OS from `/etc/os-release`: `rpm` family -> `dnf`, `deb` family -> `apt`, anything else -> source build
   (clone, `cmake --build build --target install_release` = Debug + Asan + Optimized into `/usr/local`).
-- Mirror: runs the official `TsukiNi22/libutils/main/setup.sh` (`/etc/yum.repos.d/libutils.repo` or
-  `/etc/apt/sources.list.d/libutils.list` + the GPG key) only when it isn't configured yet.
+- Mirror: any repository file whose URL is `https://tsukini22.github.io/libutils/` counts: the one of libutils
+  (`/etc/yum.repos.d/libutils.repo`, `/etc/apt/sources.list.d/libutils.list`) or of my-universe (`universe.repo`, id
+  `universe-libutils`). None -> the official `TsukiNi22/libutils/main/setup.sh` (+ the GPG key). `remove --repo` keeps
+  a my-universe file (shared with other packages).
+- Cache: `status` / `channel` reload the metadata of the mirror first (`dnf makecache --refresh --repo=<id>`, user
+  cache), `install` / `update` use `dnf --refresh` (root cache): a version published since the last cache is seen.
+  `refresh` reloads both (apt: `apt-get update`). GitHub Pages serves the mirror with `max-age=600`: a version published
+  less than 10 minutes ago can still be missing.
 - Channel: **the newest one by default** (`channel` tells it): the pre channel can lag behind a stable release (ex:
   stable `libutils` 4.0.0 while `libutils-pre` is still 2.14.0: the stable one is taken); `--stable` / `--pre` force
   one. The two channels conflict: switching removes the other one first.
 - Packages: `libutils[-pre]` (= headers + CMake config + optimized `libutils.a`), variants `libutils-db[-pre]`
-  (debug, `libutils_debug.a`) and `libutils-as[-pre]` (asan, `libutils_asan.a`); a project built in `Debug`/`Asan`
-  needs the matching variant (the CMake config of libutils stops with an explicit message otherwise).
+  (debug, `libutils_debug.a`) and `libutils-as[-pre]` (asan, `libutils_asan.a`), each with its `libutils-dev-<variant>`
+  (CMake config, pulled by dnf / apt); a project built in `Debug`/`Asan` needs the matching variant (the CMake config of
+  libutils stops with an explicit message otherwise).
+- **A new major** (4.x -> 5.0.0): the config of libutils accepts its own major only, so a project with
+  `find_package(utils 4.x)` no longer finds it (or silently takes a `/usr/local` 4.x). Before the update, say which
+  projects require 4.x (`grep -rn 'find_package(utils\|LIBUTILS_VERSION' --include=CMakeLists.txt <projects>`) and
+  move them to 5.0.0 with `libutils-setup` (`setup_project.py <root> --version 5.0.0`).
 - `status` warns when a source install in `/usr/local` shadows the packages (`/usr/local` is searched first by
   the compiler and `find_package`): headers of one version, library of another. `remove --local` deletes it.
 
