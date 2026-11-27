@@ -36,7 +36,8 @@ Copies the working tree to `/tmp` (nothing written in the project, even the outp
 sources), builds in `Debug` with clang + the sanitizers (`all` = ASan+UBSan build, then a TSan build), unit tests
 on (`-DBUILD_TESTS=ON`) when `tests/` exists, runs `ctest` (and `--run`) with
 `halt_on_error=0`/`print_stacktrace=1`, then summarizes: counts per sanitizer, distinct issues, most frequent
-project frames. Exit 0 = clean, 1 = reports, 2 = build failure. `--keep` to read the full logs.
+project frames. Exit 0 = clean, 1 = reports, 2 = build failure. `--keep` to read the full logs. The
+`tests/lsan.supp` / `tests/tsan.supp` of the project (leaks made on purpose, ex: libutils) are used when no `--*-supp` is given.
 - Release-only bugs: also build the project's `Asan` type (`-DCMAKE_BUILD_TYPE=Asan`) and `Optimized`.
 - Warnings at the maximum on the copy: `-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion
   -Wnull-dereference -Wdouble-promotion -Wformat=2 -Wcast-align -Wold-style-cast` (add to `CMAKE_CXX_FLAGS`).

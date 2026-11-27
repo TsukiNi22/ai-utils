@@ -12,7 +12,8 @@
 #   --run   command run from the build copy after the tests (ex: --run "./context-forge --help")
 #   --keep  keep the temporary copy (path printed) to rerun / debug
 #   --lsan-supp / --tsan-supp  suppression files for verified false positives (ex: leaks made on purpose by a
-#           leak-detection test: "leak:AInstructionLeakTest"), one "kind:pattern" per line
+#           leak-detection test: "leak:AInstructionLeakTest"), one "kind:pattern" per line; default: the
+#           tests/lsan.supp / tests/tsan.supp of the project when it has them (ex: libutils)
 #
 # The working tree (uncommitted changes included, without .git and build dirs) is copied to /tmp, so the
 # outputs written in the sources (binaries at the root, generated headers) never touch the project.
@@ -21,8 +22,8 @@
 set -uo pipefail # no -e: a failing build / test is reported, not fatal (xstyle: ignore-file SH-STRICT)
 
 PROJECT="${1:-}"
-[[ "$PROJECT" = "-h" ]] || [[ "$PROJECT" = "--help" ]] && { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
-[[ -z "$PROJECT" ]] && { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[[ "$PROJECT" = "-h" ]] || [[ "$PROJECT" = "--help" ]] && { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
+[[ -z "$PROJECT" ]] && { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [[ -d "$PROJECT" ]] || { echo "Error: $PROJECT is not a folder" >&2; exit 2; }
 shift
 MODE="all"; RUN=""; KEEP=false; TIMEOUT=120; LSAN_SUPP=""; TSAN_SUPP=""
@@ -40,6 +41,14 @@ while [[ $# -gt 0 ]]; do
 done
 PROJECT="$(cd "$PROJECT" && pwd)" || exit 2
 [[ -f "$PROJECT/CMakeLists.txt" ]] || { echo "Error: no CMakeLists.txt in $PROJECT" >&2; exit 2; }
+# The suppressions the project keeps itself (leaks made on purpose by its leak-detection tests)
+for kind in lsan tsan; do
+    var="${kind^^}_SUPP"
+    if [[ -z "${!var}" ]] && [[ -f "$PROJECT/tests/$kind.supp" ]]; then
+        printf -v "$var" '%s' "$PROJECT/tests/$kind.supp"
+        echo "$kind suppressions of the project: ${!var}"
+    fi
+done
 NAME="$(basename "$PROJECT")"
 WORK="$(mktemp -d "/tmp/sanitize-$NAME-XXXX")"
 $KEEP || trap 'rm -rf "$WORK"' EXIT
