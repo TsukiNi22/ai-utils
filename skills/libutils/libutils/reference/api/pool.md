@@ -1,6 +1,6 @@
 # libutils `pool`
 
-Generated from libutils `v5.0.0` (commit `6aac89f`, 2026-11-27) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v5.0.0` (commit `c129a5e`, 2026-11-27) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/pool/CApi.h`
 

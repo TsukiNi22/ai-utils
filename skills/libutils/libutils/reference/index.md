@@ -1,6 +1,6 @@
 # libutils API index
 
-Generated from libutils `v5.0.0` (commit `6aac89f`, 2026-11-27) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v5.0.0` (commit `c129a5e`, 2026-11-27) by `scripts/gen_api.py`, do not edit by hand.
 
 Header path under `include/` (a project includes `<utils/utils.hpp>`, or `<utils/utils.h>` for the C API `*.h`, with the section defines). Details of a section: `api/<section>.md`.
 

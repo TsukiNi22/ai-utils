@@ -4,15 +4,15 @@
 |---|---|
 | Version (`CMakeLists.txt`) | `v5.0.0` |
 | Last CHANGELOG entry | `v5.0.0` |
-| git describe | `v5.0.0-1-g6aac89f` |
-| Commit | `6aac89f5b6b2d0347b0621942fc611ef798770a9` |
+| git describe | `v5.0.0-13-gc129a5e` |
+| Commit | `c129a5eb064a9c24a62a193828bc157beda6fbb1` |
 | Commit date | 2026-11-27 |
-| Commit subject | docs(CHANGELOG): add the missing compare links of v5.0.0 and v4.3.1-pre |
+| Commit subject | docs(CHANGELOG): update change log with the workflows and checks of cpp_project_template |
 | Repository | `git@github.com:TsukiNi22/libutils.git` |
 | Generated on | 2026-11-27 |
 
 New since this commit:
 ```bash
-git -C <libutils> log --oneline 6aac89f..HEAD -- include src CHANGELOG.md   # or ..origin/main
-git -C <libutils> diff --stat 6aac89f HEAD -- include
+git -C <libutils> log --oneline c129a5e..HEAD -- include src CHANGELOG.md   # or ..origin/main
+git -C <libutils> diff --stat c129a5e HEAD -- include
 ```
