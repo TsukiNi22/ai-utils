@@ -40,10 +40,14 @@ if __name__ != "__main__":
 ##### Const #####
 NAME = re.compile(r"^.+ - .+|^.+ \((CI|CD|CI/CD)\)$") # Name - Kind [(CI|CD)] / Name (CI|CD) (as in the user's workflows)
 IMAGES = re.compile(r"^ghcr\.io/tsukini22/(ci|unit-tests|mingw64-ci|mingw64-unit-tests|package|git)(:|$)")
+ANNOTATION = re.compile(r"::(error|warning|notice)\b([^\"'\n]*)") # ::error title=<Title>,file=<file>::<message>
+ANNOTATION_OK = re.compile(r"^( [A-Za-z]+=[^,:]*(,[A-Za-z]+=[^,:]*)*)?::")
 
 ##### Tools #####
 def check(path: Path) -> list[str]:
     problems = []
+    root = path.resolve().parent.parent.parent # <root>/.github/workflows/<file>
+    exceptions = (root / "cmake" / "config" / "exceptions").is_dir()
     try:
         workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
@@ -70,6 +74,14 @@ def check(path: Path) -> list[str]:
                 problems.append(f"job {job_id}: a step is not a mapping")
                 continue
             run = str(step.get("run") or "")
+            for kind, rest in ANNOTATION.findall(run):
+                if not ANNOTATION_OK.match(rest):
+                    problems.append(f"job {job_id}, step '{step.get('name', '?')}': malformed annotation '::{kind}{rest[:40].rstrip()}'"
+                                    " (::error title=<Title>,file=<file>::<message>: no space after ',', '::' before the message)")
+            key = str((step.get("with") or {}).get("key", "")) if isinstance(step.get("with"), dict) else ""
+            if exceptions and "ccache" in key and "hashFiles" in key and "cmake/config/exceptions" not in key:
+                problems.append(f"job {job_id}, step '{step.get('name', '?')}': ccache key without 'cmake/config/exceptions/**/*.json'"
+                                " (the generated exception header changes with them)")
             commands = [line for line in run.strip().splitlines() if line.strip() and not line.rstrip().endswith("\\") and not line.strip().startswith("#")]
             if len(commands) > 1 and "set -e" not in run and "set -uo" not in run:
                 problems.append(f"job {job_id}, step '{step.get('name', '?')}': multi-line run without set -euo pipefail")

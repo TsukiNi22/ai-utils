@@ -69,9 +69,21 @@ repository:
   `Dispatch (CI/CD)`, `Build Image - CI`); file names `kebab-case.yml`.
 - Every job: `runs-on: ${{ vars.RUNNER }}`, `defaults: run: shell: bash`, `container: image: ...`.
 - `actions/checkout@v5` with `fetch-depth: 1` (0 when the history / a base branch is needed), `actions/cache@v5` for
-  ccache (`/github/home/.cache/ccache`, key on the hashes of the sources + `CMakeLists.txt`) then `ccache -s`.
+  ccache (`/github/home/.cache/ccache`, key `hashFiles('**/*.cpp', '**/*.hpp', 'cmake/config/exceptions/**/*.json',
+  'CMakeLists.txt')`: the generated exception header changes with the JSON) then `ccache -s`.
 - Every multi-line `run:` starts with `set -euo pipefail` (`set -e` at least), named steps, `timeout-minutes` on builds
-  and tests, errors as annotations `echo "::error title=<Title>,file=<file>::<message>"`, `✓ <thing> ok` on success.
+  and tests, errors as annotations `echo "::error title=<Title>,file=<file>::<message>"` (no space after `,`, `::` before
+  the message: checked), `✓ <thing> ok` on success.
+- Lint: `lint.yml` (cpp_project_template, libutils) on every push of `main`: `shellcheck -S warning` on
+  `git ls-files '*.sh' '.githooks/*'`, `actionlint -shellcheck= -pyflakes=`, `xstyle -F major`; a tool that cannot be
+  installed is a `::warning`, an issue found an error. Fits any repository (copy it, adapt the `-e` exclusions).
+- C / C++ unit tests twice: Debug, then `-DCMAKE_BUILD_TYPE=Asan` in `build-asan/`; the leaks made on purpose in
+  `tests/lsan.supp` (`ENVIRONMENT "LSAN_OPTIONS=suppressions=..."` on the tests), the tests that cannot run under ASan
+  skipped (GPU drivers not instrumented, a failing `operator new`).
+- Packages: a tag whose version is not `project(... VERSION X.Y.Z)` is refused before the build; a push on `gh-pages`
+  (docs, packages, manual pushes share it) is retried: `git pull --rebase origin gh-pages`, 5 attempts.
+- `dispatch.yml` ignores the pushes changing only `*.md`, `*.txt` or `docs/**` (`paths-ignore`): `docs.yml` publishes
+  `docs/` on `gh-pages` (without its sources, ex: `docs/site/`).
 - Dispatch chain: `dispatch.yml` decides (`[build]` -> pre-release packages, tag `vX.Y.Z` -> stable, `[ignore]` ->
   nothing) and triggers the other workflows with `workflow_dispatch` through the API (`curl` + `secrets.GITHUB_TOKEN`);
   another repository: `repository_dispatch` with `secrets.GIT_TOKEN` (`templates/dispatch-repository.yml`, the
@@ -97,7 +109,8 @@ that is not clean yet: start with `--fail-on unforgivable` or the PR-only trigge
 - **GitHub release** (`release.yml`): on a `v*` tag, the notes are the section of the tag in `CHANGELOG.md` (the
   `git-conventions` format: `## vX.Y.Z - date`, `## [vX.Y.Z-pre] - date`; the job fails without it), a tag with a suffix
   (`vX.Y.Z-pre`, `-rc1`...) is a pre-release, `{{ASSETS}}` = files to attach (binaries, `dist/*`, packages) or empty.
-  A C++ project of the template already has its own `release.yml` (run by `dispatch.yml` after the packages).
+  A C++ project of the template already has its own `release.yml` (run by `dispatch.yml` after the packages, which it
+  attaches).
 - **Packages RPM/DEB** (C/C++): the `dispatch` / `build-packages` workflows of cpp_project_template (Linux and Windows
   `mingw64-*`, stable on a `vX.Y.Z` tag, pre-release on `[build]` or a `vX.Y.Z-<suffix>` tag), signed and published in
   the gh-pages repository when the project has one (GPG secrets, Pages: see `cpp-project`), else artifacts of the run.

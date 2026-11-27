@@ -113,14 +113,14 @@ The template's workflows are kept as generated when the project is a GitHub repo
 |---|---|
 | `dispatch.yml` | every push on `main` / tag `v*` (not `*.md` / `*.txt` / `docs/` only): decides what runs from the ref / message |
 | `lint.yml` | every push on `main`: `shellcheck`, `actionlint`, `xstyle` (a missing tool is a warning) |
-| `unit-tests.yml` | always first: Linux Debug then AddressSanitizer (`unit-tests` image), Windows (`mingw64-unit-tests`, under `wine`) |
+| `unit-tests.yml` | always first: Linux Debug then AddressSanitizer (`unit-tests` image), Windows (`mingw64-unit-tests`, under `wine`, a test that hangs on exit retried once) |
 | `build.yml` | build check only (Linux `ci`, Windows `mingw64-ci`) when no packages are built |
 | `build-packages.yml` | RPM/DEB/Arch (+ `mingw64-*`), checked against `PACKAGE_*`, a tag whose version is not `project(... VERSION)` refused; gh-pages: signed and published (5 last `-pre` kept) |
 | `release.yml` | the GitHub release of a tag from its `CHANGELOG.md` section (`## vX.Y.Z - date`, `## [vX.Y.Z-pre] - date`, else `## [pre-release]` for a `-pre` tag), the packages attached |
 | `docs.yml` (gh-pages) | `docs/` copied on `gh-pages` at each push changing it |
 - Triggers (`git-conventions`): `[build]` in a commit or a tag `vX.Y.Z-<suffix>` = pre-release packages (`-pre`), a tag
   `vX.Y.Z` = stable packages + GitHub release (its CHANGELOG section must exist), `[ignore]` = no CI, `[release]` =
-  the commented `notify-downstream` job (a `repository_dispatch` example).
+  the commented `notify-downstream` job (a `repository_dispatch` example, run once the unit tests passed).
 - `Personnalisée`: the **`ci-cd` skill** (load it) on top of these files (style check with xstyle, coverage...): it
   edits them, never rewrites them from scratch. `Aucune`: remove `.github/workflows/`. Without GitHub: no workflow,
   say it.
