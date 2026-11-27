@@ -13,12 +13,13 @@ The base is always **`cpp_project_template`** and **its own `setup.sh`** (local 
 `~/personal_delivery/cpp/cpp_project_template`, otherwise `https://github.com/TsukiNi22/cpp_project_template.git`): it
 renames, adapts the copy to the kind, writes the README, the CHANGELOG, the docs and the gh-pages branch. This skill
 drives it without git actions, then completes what it does not do (libutils freshness, no-libutils, `.gitignore`, the
-custom CI/CD, the checks). Skill synced with the template at `e4a13c2` (2026-11-24: `lint.yml`, unit tests under ASan,
+custom CI/CD, the checks). Skill synced with the template at `21bf72f` (2026-11-27: the downstream example notified only once the unit tests
+passed, the Windows tests retried once under `wine`, the xstyle install hint of the hook; 2026-11-24: `lint.yml`, unit tests under ASan,
 packages attached to the GitHub release, tag version checked, package names in lower case, exception headers in
 `include/<name>/exception/`, `make` targets, `setup.sh --force`, the README detail in `readme/`; before: the packages
 `setup.sh` only registers the mirror (`--install`), Arch packages, xstyle pre-commit hook, Windows build, one CMake for
 every kind, `SRC` / `SRC_SHARED`, gh-pages, libutils `>= 4.1.0`): when its `HEAD` is newer
-(`git -C <clone> log --oneline e4a13c2..HEAD`, and `origin/main` after a `git fetch`), read its `readme/setup.md`,
+(`git -C <clone> log --oneline 21bf72f..HEAD`, and `origin/main` after a `git fetch`), read its `readme/setup.md`,
 `readme/project.md`, `readme/workflows.md`, `readme/packages.md` and `setup.sh --help` before relying on the steps below.
 The other skills, each loaded when its step comes: `cmake-style` (CMake), `cpp-class` (classes, header question, main),
 `libutils-exception` (codes), `readme-style`, `git-conventions` (CHANGELOG, commits, branches), `ci-cd`, `html-doc`.

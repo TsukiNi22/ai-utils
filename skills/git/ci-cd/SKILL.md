@@ -39,6 +39,8 @@ Read the current list and versions in the docker-image repository (`~/personal_d
 |---|---|
 | C / C++ build (clang, cmake, ccache, libutils + debug/asan, openssl, python3, xstyle) | `ghcr.io/tsukini22/ci:latest` |
 | C / C++ unit tests (ci + GTest / GMock) | `ghcr.io/tsukini22/unit-tests:latest` |
+| C / C++ Windows build (MinGW-w64 cross compilation, `mingw64-libutils`, `CMAKE_TOOLCHAIN_FILE` set) | `ghcr.io/tsukini22/mingw64-ci:latest` |
+| C / C++ Windows unit tests (mingw64-ci + GTest, `ctest` runs the `.exe` under `wine`) | `ghcr.io/tsukini22/mingw64-unit-tests:latest` |
 | RPM / DEB packages, signatures, repositories | `ghcr.io/tsukini22/package:latest` |
 | git / curl only (dispatch, tags, API calls) | `ghcr.io/tsukini22/git:latest` |
 | style check (xstyle) | `ghcr.io/tsukini22/ci:latest` (xstyle from ci v2.1.0) |
@@ -75,6 +77,12 @@ repository:
   another repository: `repository_dispatch` with `secrets.GIT_TOKEN` (`templates/dispatch-repository.yml`, the
   receiving workflow listens with `on: repository_dispatch: types: [<event>]`, like `build-image-ci.yml` with
   `libutils-released`).
+- A job of the chain that runs with `always()` (a downstream notification after `notify-build-packages`) also needs
+  `notify-unit-tests` and `needs.notify-unit-tests.result == 'success'`: failed tests skip the packages job, and a
+  `skipped` packages job is accepted (a `[release]` commit without packages), so without it the downstream repository
+  is notified of a version that was never built.
+- Windows unit tests under `wine`: `ctest --repeat until-pass:2` (a test can hang on exit while wine starts / stops its
+  server for the parallel processes), `timeout-minutes: 8`.
 - Secrets / variables are never created by the skill: list them for the user (`gh variable set RUNNER --body ...`,
   `gh secret set GIT_TOKEN`, GPG secrets of the packages: see `cpp-project`).
 

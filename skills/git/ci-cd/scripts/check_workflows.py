@@ -39,7 +39,7 @@ if __name__ != "__main__":
 
 ##### Const #####
 NAME = re.compile(r"^.+ - .+|^.+ \((CI|CD|CI/CD)\)$") # Name - Kind [(CI|CD)] / Name (CI|CD) (as in the user's workflows)
-IMAGES = re.compile(r"^ghcr\.io/tsukini22/(ci|unit-tests|package|git)(:|$)")
+IMAGES = re.compile(r"^ghcr\.io/tsukini22/(ci|unit-tests|mingw64-ci|mingw64-unit-tests|package|git)(:|$)")
 
 ##### Tools #####
 def check(path: Path) -> list[str]:
